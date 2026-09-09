@@ -1,0 +1,5 @@
+[
+  {"type":"cyclone","name":"Demo Cyclone Track","lat":18.2,"lon":86.5,"severity":"high"},
+  {"type":"earthquake","name":"Demo Seismic Event","lat":27.8,"lon":88.1,"severity":"moderate"},
+  {"type":"flood","name":"Demo Flood Risk","lat":26.1,"lon":91.7,"severity":"moderate"}
+]

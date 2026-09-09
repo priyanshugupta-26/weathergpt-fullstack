@@ -1,0 +1,6 @@
+import {api,state,number,citySelector} from './common.js';
+await citySelector(document.getElementById('citySelect'));
+const w=await api(`/api/weather/current?lat=${state.lat}&lon=${state.lon}`);temp.textContent=number(w.temperature_2m,'°C');humidity.textContent=number(w.relative_humidity_2m,'%');wind.textContent=number(w.wind_speed_10m,' km/h');pressure.textContent=number(w.pressure_msl,' hPa');
+const f=await api(`/api/weather/forecast?lat=${state.lat}&lon=${state.lon}&hours=24`);const rows=f.rows;hourlyRows.innerHTML=rows.slice(0,12).map(r=>`<tr><td>${String(r.time).slice(11,16)}</td><td>${number(r.temperature_2m,'°')}</td><td>${number(r.relative_humidity_2m,'%')}</td><td>${number(r.precipitation_probability,'%')}</td><td>${number(r.wind_speed_10m,' km/h')}</td><td>${number(r.uv_index)}</td></tr>`).join('');
+new Chart(tempChart,{type:'line',data:{labels:rows.map(r=>String(r.time).slice(11,16)),datasets:[{label:'°C',data:rows.map(r=>r.temperature_2m),tension:.35,fill:true}]},options:{plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8ea7b8'}},y:{ticks:{color:'#8ea7b8'}}}}});
+new Chart(rainChart,{type:'bar',data:{labels:rows.map(r=>String(r.time).slice(11,16)),datasets:[{label:'%',data:rows.map(r=>r.precipitation_probability)}]},options:{plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#8ea7b8'}},y:{ticks:{color:'#8ea7b8'},max:100}}}});

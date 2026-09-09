@@ -1,0 +1,2 @@
+import {api,state,number} from './common.js';
+(async()=>{try{const w=await api(`/api/weather/current?lat=${state.lat}&lon=${state.lon}`);heroTemp.textContent=number(w.temperature_2m,'°C');heroWind.textContent=number(w.wind_speed_10m,' km/h');heroPressure.textContent=number(w.pressure_msl,' hPa');const a=await api(`/api/alerts?lat=${state.lat}&lon=${state.lon}`);heroAlert.textContent=a.alerts[0].message}catch(e){heroAlert.textContent='Backend unavailable';}})();
