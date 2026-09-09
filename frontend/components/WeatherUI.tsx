@@ -122,7 +122,7 @@ export function Freshness() {
   );
 }
 export function CurrentCard() {
-  const { place, weather, loading } = useApp(),
+  const { place, weather, loading, forecastSource, setForecastSource } = useApp(),
     c = weather?.current || {};
   return (
     <section className="card current-card">
@@ -148,6 +148,37 @@ export function CurrentCard() {
           day: 'numeric',
           month: 'long',
         })}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '10px 0 6px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Source:</span>
+        {[
+          { id: 'AUTO', label: '✨ Auto' },
+          { id: 'WEATHERGPT ML', label: '⚡ WeatherGPT ML' },
+          { id: 'OPEN-METEO', label: '🌐 Open-Meteo' },
+        ].map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => setForecastSource(s.id)}
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: '2px 9px',
+              borderRadius: 12,
+              cursor: 'pointer',
+              border: forecastSource === s.id ? '1px solid #10b981' : '1px solid var(--line)',
+              background: forecastSource === s.id
+                ? (s.id === 'WEATHERGPT ML' ? 'rgba(16, 185, 129, 0.22)' : 'rgba(59, 130, 246, 0.22)')
+                : 'transparent',
+              color: forecastSource === s.id
+                ? (s.id === 'WEATHERGPT ML' ? '#34d399' : '#60a5fa')
+                : 'var(--muted)',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {s.label}
+          </button>
+        ))}
       </div>
       {loading && !weather ? (
         <Skeleton className="mt-8 h-24 w-40" />

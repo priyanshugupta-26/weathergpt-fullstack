@@ -173,7 +173,13 @@ export default function App() {
     [notifications, setNotifications] = useState<Record<string, boolean>>(() =>
       readLocal("wg.notifications", {}),
     ),
-    [toastText, setToastText] = useState("");
+    [toastText, setToastText] = useState(""),
+    [forecastSource, setForecastSourceState] = useState(() => readLocal("wg.forecastSource", "AUTO"));
+  const setForecastSource = useCallback((s: string) => {
+    setForecastSourceState(s);
+    writeLocal("wg.forecastSource", s);
+    setWeather(null);
+  }, []);
   const notifyPrefs = useRef(notifications);
   notifyPrefs.current = notifications;
   const loadedProfile = useRef<number | null>(null);
@@ -236,7 +242,15 @@ export default function App() {
     const controller = new AbortController();
     setLoading(true);
     setError("");
-    api<Weather>(`/api/weather/forecast?${locationQuery(place)}`, { signal: controller.signal })
+    const srcParam =
+      forecastSource === "WEATHERGPT ML"
+        ? "&source=weathergpt_ml"
+        : forecastSource === "OPEN-METEO"
+          ? "&source=open-meteo"
+          : forecastSource === "IMD"
+            ? "&source=imd"
+            : "";
+    api<Weather>(`/api/weather/forecast?${locationQuery(place)}${srcParam}`, { signal: controller.signal })
       .then((w) => {
         setWeather(w);
         if (w.status !== "live") setError(w.message || "Weather unavailable");
@@ -251,7 +265,7 @@ export default function App() {
       .then((d) => setAlerts(d.alerts))
       .catch(() => {});
     return () => controller.abort();
-  }, [place, tick]);
+  }, [place, tick, forecastSource]);
   useEffect(() => {
     const timer = setInterval(() => setTick((t) => t + 1), 600000);
     return () => clearInterval(timer);
@@ -365,6 +379,8 @@ export default function App() {
     place,
     setPlace,
     weather,
+    forecastSource,
+    setForecastSource,
     loading,
     reload: () => setTick((t) => t + 1),
     error,
@@ -448,6 +464,59 @@ export default function App() {
             <SidebarTrigger aria-label="Toggle navigation" />
             <span className="topbar-label">Weather intelligence</span>
             <Search />
+            <div
+              className="forecast-source-pills"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                background: "rgba(255,255,255,0.06)",
+                padding: "3px 6px",
+                borderRadius: 8,
+                border: "1px solid var(--line)",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: "var(--muted)",
+                  textTransform: "uppercase",
+                  padding: "0 4px",
+                }}
+              >
+                Engine:
+              </span>
+              {[
+                { id: "AUTO", label: "✨ Auto" },
+                { id: "WEATHERGPT ML", label: "⚡ ML Model" },
+                { id: "OPEN-METEO", label: "🌐 Open-Meteo" },
+              ].map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setForecastSource(s.id)}
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    border: "none",
+                    background:
+                      forecastSource === s.id
+                        ? s.id === "WEATHERGPT ML"
+                          ? "#10b981"
+                          : "var(--accent)"
+                        : "transparent",
+                    color: forecastSource === s.id ? "#fff" : "var(--muted)",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
             <button className="icon-btn" aria-label="Use current location" onClick={geo}>
               <LocateFixed size={17} />
             </button>

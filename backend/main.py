@@ -271,6 +271,7 @@ async def weather(
     latitude: float = Query(25.5941, ge=-90, le=90),
     longitude: float = Query(85.1376, ge=-180, le=180),
     name: str = Query("Selected location", max_length=160),
+    source: str = Query("auto", max_length=50),
 ):
     key = (round(latitude, 3), round(longitude, 3))
     watched[key] = name
@@ -278,6 +279,18 @@ async def weather(
         expired = next(iter(watched))
         watched.pop(expired)
         active_alerts.pop(expired, None)
+
+    s_clean = source.strip().lower()
+    if s_clean in ("weathergpt_ml", "weathergpt ml", "ml", "own_model", "own-model"):
+        from backend.services.prediction import generate_ml_weather_forecast
+        return generate_ml_weather_forecast(latitude, longitude, name)
+    elif s_clean in ("open-meteo", "open_meteo", "openmeteo"):
+        return await provider.weather(latitude, longitude)
+    elif s_clean == "imd":
+        imd_res = await imd.forecast(latitude, longitude)
+        if imd_res and imd_res.get("status") == "live":
+            return imd_res
+
     return await refresh_location(*key, name)
 
 

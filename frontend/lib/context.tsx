@@ -4,6 +4,8 @@ export type AppContext = {
   place: Place;
   setPlace: (p: Place) => void;
   weather: Weather | null;
+  forecastSource: string;
+  setForecastSource: (s: string) => void;
   loading: boolean;
   reload: () => void;
   error: string;

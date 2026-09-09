@@ -378,3 +378,18 @@ def test_predict_auto_disaster(client):
     assert "features_20" in data
     assert len(data["features_20"]) == 20
     assert "risk" in data or "event" in data
+
+
+def test_forecast_source_selection(client):
+    r_ml = client.get("/api/weather/forecast?latitude=25.5941&longitude=85.1376&source=weathergpt_ml")
+    assert r_ml.status_code == 200
+    d_ml = r_ml.json()
+    assert d_ml["status"] == "live"
+    assert "WeatherGPT ML" in d_ml["source"]
+    assert d_ml.get("model_badge") == "WEATHERGPT OWN MODEL"
+
+    r_om = client.get("/api/weather/forecast?latitude=25.5941&longitude=85.1376&source=open-meteo")
+    assert r_om.status_code == 200
+    d_om = r_om.json()
+    assert d_om["status"] in ("live", "degraded")
+
