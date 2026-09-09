@@ -30,12 +30,16 @@ class ProviderClient:
         self.failures = {}
         self.client = httpx.AsyncClient(
             timeout=settings.provider_timeout,
-            headers={"User-Agent": "WeatherGPT/1.0 (local weather dashboard)"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 WeatherGPT/1.0",
+                "Accept": "application/json, text/plain, */*",
+            },
+            follow_redirects=True,
         )
 
     async def get(self, source, url, params=None, ttl=600):
         key = url + str(sorted((params or {}).items()))
-        if self.failures.get(key, 0) > time.time() - 60:
+        if self.failures.get(key, 0) > time.time() - 10:
             raise RuntimeError(
                 f"{source} is temporarily unavailable. Try again shortly."
             )
@@ -63,10 +67,15 @@ class ProviderClient:
                     self.status[source] = {"status": "online", "checked_at": utcnow()}
                     return result
                 except (httpx.HTTPError, ValueError) as error:
+                    detail = str(error)
+                    if hasattr(error, "response") and error.response is not None:
+                        detail = f"HTTP {error.response.status_code}: {error.response.text[:200]}"
+                    log.warning("provider_error source=%s attempt=%d: %s", source, attempt, detail)
                     self.status[source] = {
                         "status": "unavailable",
                         "checked_at": utcnow(),
                         "error": type(error).__name__,
+                        "detail": detail,
                     }
                     if not attempt:
                         await asyncio.sleep(0.5)
@@ -147,6 +156,15 @@ class OpenMeteoProvider:
             )
             return result
         except RuntimeError as error:
+            with contextlib.suppress(Exception):
+                cached_rec = read_record(f"weather:{latitude:.3f}:{longitude:.3f}")
+                if cached_rec and isinstance(cached_rec.get("data"), dict) and cached_rec["data"].get("current"):
+                    res = dict(cached_rec["data"])
+                    res["status"] = "cached"
+                    res["source"] = f"{self.name} (Cached)"
+                    res["message"] = "Live updates temporarily delayed; showing recent telemetry."
+                    return res
+
             return {
                 "status": "unavailable",
                 "source": self.name,

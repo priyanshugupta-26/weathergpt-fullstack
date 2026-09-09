@@ -140,7 +140,14 @@ async def lifespan(app):
     initialize()
     if client.client.is_closed:
         import httpx
-        client.client = httpx.AsyncClient(timeout=settings.provider_timeout)
+        client.client = httpx.AsyncClient(
+            timeout=settings.provider_timeout,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 WeatherGPT/1.0",
+                "Accept": "application/json, text/plain, */*",
+            },
+            follow_redirects=True,
+        )
     for model in [weather_model, disaster_model]:
         model.load()
 
