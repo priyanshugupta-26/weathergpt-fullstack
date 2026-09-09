@@ -119,7 +119,44 @@ class ModelRegistry:
                 select(ModelVersion).where(ModelVersion.status == "CHAMPION").order_by(ModelVersion.id.desc())
             )
             if not champ_row:
-                log.info("No active CHAMPION found in database.")
+                # Discover bundled artifacts on disk if database is fresh
+                if self.base_dir.exists():
+                    subdirs = sorted([d for d in self.base_dir.iterdir() if d.is_dir() and (d / "model.pkl").exists()], key=lambda p: p.name)
+                    if subdirs:
+                        latest_dir = subdirs[-1]
+                        meta_file = latest_dir / "metadata.json"
+                        meta = {}
+                        if meta_file.exists():
+                            try:
+                                meta = json.loads(meta_file.read_text())
+                            except Exception:
+                                pass
+
+                        metrics_file = latest_dir / "metrics.json"
+                        metrics = {}
+                        if metrics_file.exists():
+                            try:
+                                metrics = json.loads(metrics_file.read_text())
+                            except Exception:
+                                pass
+
+                        champ_row = ModelVersion(
+                            model_name="weathergpt_ml",
+                            model_type="multi_output_regressor",
+                            version=latest_dir.name,
+                            status="CHAMPION",
+                            algorithm=meta.get("algorithm", "HistGradientBoosting"),
+                            artifact_path=str(latest_dir / "model.pkl"),
+                            training_rows=meta.get("training_rows", 0),
+                            metrics=json.dumps(metrics),
+                            promotion_reason="Initial baseline from model registry",
+                        )
+                        with Session.begin() as save_db:
+                            save_db.add(champ_row)
+                        log.info("Auto-registered baseline champion %s from filesystem", latest_dir.name)
+
+            if not champ_row:
+                log.info("No active CHAMPION found in database or filesystem.")
                 return None
 
             try:
