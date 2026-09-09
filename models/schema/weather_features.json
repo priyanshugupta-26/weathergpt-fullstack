@@ -1,0 +1,440 @@
+{
+  "schema_version": "1.0.0",
+  "name": "weathergpt_ml_features",
+  "description": "Schema-driven feature and multi-output target configuration for WeatherGPT ML forecasting engine.",
+  "features": [
+    {
+      "name": "latitude",
+      "unit": "degrees_north",
+      "dtype": "float64",
+      "source": "geospatial",
+      "required": true,
+      "default": 25.5941,
+      "description": "Station or grid latitude"
+    },
+    {
+      "name": "longitude",
+      "unit": "degrees_east",
+      "dtype": "float64",
+      "source": "geospatial",
+      "required": true,
+      "default": 85.1376,
+      "description": "Station or grid longitude"
+    },
+    {
+      "name": "temperature_2m",
+      "unit": "celsius",
+      "dtype": "float64",
+      "source": "observation",
+      "required": true,
+      "default": 27.0,
+      "description": "Air temperature at 2 meters above ground"
+    },
+    {
+      "name": "relative_humidity_2m",
+      "unit": "percent",
+      "dtype": "float64",
+      "source": "observation",
+      "required": true,
+      "default": 60.0,
+      "description": "Relative humidity at 2 meters above ground"
+    },
+    {
+      "name": "dew_point_2m",
+      "unit": "celsius",
+      "dtype": "float64",
+      "source": "derived_observation",
+      "required": false,
+      "default": 18.0,
+      "description": "Dew point temperature at 2 meters"
+    },
+    {
+      "name": "apparent_temperature",
+      "unit": "celsius",
+      "dtype": "float64",
+      "source": "derived_observation",
+      "required": false,
+      "default": 28.5,
+      "description": "Perceived temperature incorporating wind chill and humidity"
+    },
+    {
+      "name": "precipitation",
+      "unit": "mm",
+      "dtype": "float64",
+      "source": "observation",
+      "required": false,
+      "default": 0.0,
+      "description": "Total precipitation over the previous hour"
+    },
+    {
+      "name": "rain",
+      "unit": "mm",
+      "dtype": "float64",
+      "source": "observation",
+      "required": false,
+      "default": 0.0,
+      "description": "Liquid rain component over the previous hour"
+    },
+    {
+      "name": "surface_pressure",
+      "unit": "hPa",
+      "dtype": "float64",
+      "source": "observation",
+      "required": true,
+      "default": 1005.0,
+      "description": "Atmospheric air pressure at ground surface"
+    },
+    {
+      "name": "et0_fao_evapotranspiration",
+      "unit": "mm",
+      "dtype": "float64",
+      "source": "derived_physics",
+      "required": false,
+      "default": 0.2,
+      "description": "Reference crop evapotranspiration (FAO-56 Penman-Monteith)"
+    },
+    {
+      "name": "vapour_pressure_deficit",
+      "unit": "kPa",
+      "dtype": "float64",
+      "source": "derived_physics",
+      "required": false,
+      "default": 1.2,
+      "description": "Vapour pressure deficit between saturated and actual humidity"
+    },
+    {
+      "name": "wind_speed_10m",
+      "unit": "km/h",
+      "dtype": "float64",
+      "source": "observation",
+      "required": true,
+      "default": 10.0,
+      "description": "Wind speed at 10 meters above ground"
+    },
+    {
+      "name": "wind_gusts_10m",
+      "unit": "km/h",
+      "dtype": "float64",
+      "source": "observation",
+      "required": false,
+      "default": 14.0,
+      "description": "Peak wind gust speed at 10 meters"
+    },
+    {
+      "name": "soil_temperature_0_to_7cm",
+      "unit": "celsius",
+      "dtype": "float64",
+      "source": "observation",
+      "required": false,
+      "default": 27.0,
+      "description": "Surface layer soil temperature"
+    },
+    {
+      "name": "soil_moisture_0_to_7cm",
+      "unit": "m3/m3",
+      "dtype": "float64",
+      "source": "observation",
+      "required": false,
+      "default": 0.3,
+      "description": "Volumetric soil moisture content in top layer"
+    },
+    {
+      "name": "shortwave_radiation",
+      "unit": "W/m2",
+      "dtype": "float64",
+      "source": "solar_sensor",
+      "required": false,
+      "default": 400.0,
+      "description": "Global horizontal shortwave solar irradiance"
+    },
+    {
+      "name": "direct_normal_irradiance",
+      "unit": "W/m2",
+      "dtype": "float64",
+      "source": "solar_sensor",
+      "required": false,
+      "default": 300.0,
+      "description": "Direct normal solar irradiance"
+    },
+    {
+      "name": "diffuse_radiation",
+      "unit": "W/m2",
+      "dtype": "float64",
+      "source": "solar_sensor",
+      "required": false,
+      "default": 100.0,
+      "description": "Diffuse horizontal solar irradiance"
+    },
+    {
+      "name": "cloud_cover",
+      "unit": "percent",
+      "dtype": "float64",
+      "source": "observation",
+      "required": false,
+      "default": 20.0,
+      "description": "Total cloud cover percentage"
+    },
+    {
+      "name": "wind_u_vector",
+      "unit": "m/s",
+      "dtype": "float64",
+      "source": "derived_physics",
+      "required": true,
+      "default": 0.0,
+      "description": "Zonal wind vector component (west-to-east)"
+    },
+    {
+      "name": "wind_v_vector",
+      "unit": "m/s",
+      "dtype": "float64",
+      "source": "derived_physics",
+      "required": true,
+      "default": 0.0,
+      "description": "Meridional wind vector component (south-to-north)"
+    },
+    {
+      "name": "wet_bulb_temp",
+      "unit": "celsius",
+      "dtype": "float64",
+      "source": "derived_physics",
+      "required": true,
+      "default": 22.0,
+      "description": "Psychrometric wet-bulb temperature via Stull empirical formulation"
+    },
+    {
+      "name": "sin_hour",
+      "unit": "dimensionless",
+      "dtype": "float64",
+      "source": "cyclical_time",
+      "required": true,
+      "default": 0.0,
+      "description": "Harmonic sine encoding of hour of day (24h period)"
+    },
+    {
+      "name": "cos_hour",
+      "unit": "dimensionless",
+      "dtype": "float64",
+      "source": "cyclical_time",
+      "required": true,
+      "default": 1.0,
+      "description": "Harmonic cosine encoding of hour of day (24h period)"
+    },
+    {
+      "name": "sin_day",
+      "unit": "dimensionless",
+      "dtype": "float64",
+      "source": "cyclical_time",
+      "required": true,
+      "default": 0.0,
+      "description": "Harmonic sine encoding of day of year (365.25d period)"
+    },
+    {
+      "name": "cos_day",
+      "unit": "dimensionless",
+      "dtype": "float64",
+      "source": "cyclical_time",
+      "required": true,
+      "default": 1.0,
+      "description": "Harmonic cosine encoding of day of year (365.25d period)"
+    },
+    {
+      "name": "pressure_tendency_3h",
+      "unit": "hPa",
+      "dtype": "float64",
+      "source": "lag_difference",
+      "required": true,
+      "default": -0.2,
+      "description": "3-hour barometric pressure tendency (p_t - p_t-3)"
+    },
+    {
+      "name": "temp_lag_1",
+      "unit": "celsius",
+      "dtype": "float64",
+      "source": "autoregressive_lag",
+      "required": false,
+      "default": 26.7,
+      "lag_hours": 1,
+      "target_field": "temperature_2m",
+      "description": "Air temperature 1 hour ago"
+    },
+    {
+      "name": "humidity_lag_1",
+      "unit": "percent",
+      "dtype": "float64",
+      "source": "autoregressive_lag",
+      "required": false,
+      "default": 62.0,
+      "lag_hours": 1,
+      "target_field": "relative_humidity_2m",
+      "description": "Relative humidity 1 hour ago"
+    },
+    {
+      "name": "radiation_lag_1",
+      "unit": "W/m2",
+      "dtype": "float64",
+      "source": "autoregressive_lag",
+      "required": false,
+      "default": 370.0,
+      "lag_hours": 1,
+      "target_field": "shortwave_radiation",
+      "description": "Shortwave radiation 1 hour ago"
+    },
+    {
+      "name": "temp_lag_2",
+      "unit": "celsius",
+      "dtype": "float64",
+      "source": "autoregressive_lag",
+      "required": false,
+      "default": 26.3,
+      "lag_hours": 2,
+      "target_field": "temperature_2m",
+      "description": "Air temperature 2 hours ago"
+    },
+    {
+      "name": "humidity_lag_2",
+      "unit": "percent",
+      "dtype": "float64",
+      "source": "autoregressive_lag",
+      "required": false,
+      "default": 64.0,
+      "lag_hours": 2,
+      "target_field": "relative_humidity_2m",
+      "description": "Relative humidity 2 hours ago"
+    },
+    {
+      "name": "radiation_lag_2",
+      "unit": "W/m2",
+      "dtype": "float64",
+      "source": "autoregressive_lag",
+      "required": false,
+      "default": 340.0,
+      "lag_hours": 2,
+      "target_field": "shortwave_radiation",
+      "description": "Shortwave radiation 2 hours ago"
+    },
+    {
+      "name": "temp_lag_3",
+      "unit": "celsius",
+      "dtype": "float64",
+      "source": "autoregressive_lag",
+      "required": false,
+      "default": 25.8,
+      "lag_hours": 3,
+      "target_field": "temperature_2m",
+      "description": "Air temperature 3 hours ago"
+    },
+    {
+      "name": "humidity_lag_3",
+      "unit": "percent",
+      "dtype": "float64",
+      "source": "autoregressive_lag",
+      "required": false,
+      "default": 66.0,
+      "lag_hours": 3,
+      "target_field": "relative_humidity_2m",
+      "description": "Relative humidity 3 hours ago"
+    },
+    {
+      "name": "radiation_lag_3",
+      "unit": "W/m2",
+      "dtype": "float64",
+      "source": "autoregressive_lag",
+      "required": false,
+      "default": 310.0,
+      "lag_hours": 3,
+      "target_field": "shortwave_radiation",
+      "description": "Shortwave radiation 3 hours ago"
+    },
+    {
+      "name": "temp_lag_24",
+      "unit": "celsius",
+      "dtype": "float64",
+      "source": "autoregressive_lag",
+      "required": false,
+      "default": 26.5,
+      "lag_hours": 24,
+      "target_field": "temperature_2m",
+      "description": "Air temperature 24 hours ago (diurnal persistence)"
+    },
+    {
+      "name": "humidity_lag_24",
+      "unit": "percent",
+      "dtype": "float64",
+      "source": "autoregressive_lag",
+      "required": false,
+      "default": 59.0,
+      "lag_hours": 24,
+      "target_field": "relative_humidity_2m",
+      "description": "Relative humidity 24 hours ago (diurnal persistence)"
+    },
+    {
+      "name": "radiation_lag_24",
+      "unit": "W/m2",
+      "dtype": "float64",
+      "source": "autoregressive_lag",
+      "required": false,
+      "default": 400.0,
+      "lag_hours": 24,
+      "target_field": "shortwave_radiation",
+      "description": "Shortwave radiation 24 hours ago (diurnal persistence)"
+    }
+  ],
+  "targets": [
+    {
+      "name": "temperature_2m",
+      "unit": "celsius",
+      "description": "Next-hour (T+1) air temperature",
+      "critical": true,
+      "tolerance_mae": 1.2
+    },
+    {
+      "name": "relative_humidity_2m",
+      "unit": "percent",
+      "description": "Next-hour (T+1) relative humidity",
+      "critical": true,
+      "tolerance_mae": 8.0
+    },
+    {
+      "name": "surface_pressure",
+      "unit": "hPa",
+      "description": "Next-hour (T+1) surface barometric pressure",
+      "critical": true,
+      "tolerance_mae": 2.5
+    },
+    {
+      "name": "wind_speed_10m",
+      "unit": "km/h",
+      "description": "Next-hour (T+1) wind speed",
+      "critical": true,
+      "tolerance_mae": 4.5
+    },
+    {
+      "name": "wind_direction_10m",
+      "unit": "degrees",
+      "description": "Next-hour (T+1) wind direction (angular)",
+      "is_circular": true,
+      "tolerance_mae": 45.0
+    },
+    {
+      "name": "precipitation",
+      "unit": "mm",
+      "description": "Next-hour (T+1) liquid precipitation",
+      "critical": false,
+      "tolerance_mae": 1.5
+    },
+    {
+      "name": "cloud_cover",
+      "unit": "percent",
+      "description": "Next-hour (T+1) cloud cover",
+      "critical": false,
+      "tolerance_mae": 15.0
+    },
+    {
+      "name": "dew_point_2m",
+      "unit": "celsius",
+      "description": "Next-hour (T+1) dew point",
+      "critical": false,
+      "tolerance_mae": 1.5
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+services:
+  weather:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - weather-data:/app/data
+    environment:
+      DATABASE_URL: sqlite:////app/data/weathergpt.db
+      SCHEDULER_ENABLED: "true"
+      TRUSTED_MODELS: "false"
+    restart: unless-stopped
+volumes:
+  weather-data:

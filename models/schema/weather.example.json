@@ -1,0 +1,7 @@
+{
+  "features": ["replace_with_exact_first_feature", "replace_with_exact_second_feature"],
+  "input_format": "dataframe",
+  "preprocessing": "embedded",
+  "probabilities_calibrated": false,
+  "notes": "Replace with all exact training features in their original order. This is not a guessed 39-feature schema."
+}

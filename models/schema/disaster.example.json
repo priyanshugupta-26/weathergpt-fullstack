@@ -1,0 +1,6 @@
+{
+  "features": ["replace_with_exact_feature_names"],
+  "input_format": "array",
+  "preprocessing": "none",
+  "probabilities_calibrated": false
+}

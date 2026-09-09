@@ -1,0 +1,25 @@
+import { createContext, useContext } from "react";
+import type { Place, Weather, Row } from "./api";
+export type AppContext = {
+  place: Place;
+  setPlace: (p: Place) => void;
+  weather: Weather | null;
+  loading: boolean;
+  reload: () => void;
+  error: string;
+  alerts: Row[];
+  user: Row | null;
+  setUser: (u: Row | null) => void;
+  language: string;
+  setLanguage: (l: string) => void;
+  theme: string;
+  setTheme: (t: string) => void;
+  toast: (s: string) => void;
+  navigate: (s: string) => void;
+  route: string;
+  geo: () => void;
+  notifications: Record<string, boolean>;
+  setNotifications: (n: Record<string, boolean>) => void;
+};
+export const Context = createContext<AppContext>(null!);
+export const useApp = () => useContext(Context);
