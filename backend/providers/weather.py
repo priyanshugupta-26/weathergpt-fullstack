@@ -98,6 +98,111 @@ HOURLY = "temperature_2m,relative_humidity_2m,apparent_temperature,precipitation
 DAILY = "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max"
 
 
+def parse_wttr_in(data: dict, latitude: float, longitude: float) -> dict:
+    curr_raw = (data.get("current_condition") or [{}])[0]
+    now_iso = utcnow()
+
+    wwo_code = int(curr_raw.get("weatherCode", 113) or 113)
+    wmo_code = 0
+    if wwo_code in (116,):
+        wmo_code = 2
+    elif wwo_code in (119, 122):
+        wmo_code = 3
+    elif wwo_code in (143, 248, 260):
+        wmo_code = 45
+    elif wwo_code in (266, 293, 296):
+        wmo_code = 61
+    elif wwo_code in (302, 308, 356, 359):
+        wmo_code = 65
+    elif wwo_code in (386, 389):
+        wmo_code = 95
+
+    temp = float(curr_raw.get("temp_C", 25.0) or 25.0)
+    feels = float(curr_raw.get("FeelsLikeC", temp) or temp)
+    humidity = float(curr_raw.get("humidity", 50.0) or 50.0)
+    pressure = float(curr_raw.get("pressure", 1013.0) or 1013.0)
+    wind_speed = float(curr_raw.get("windspeedKmph", 10.0) or 10.0)
+    wind_dir = float(curr_raw.get("winddirDegree", 180.0) or 180.0)
+    wind_gust = float(curr_raw.get("WindGustKmph", wind_speed * 1.3) or wind_speed * 1.3)
+    precip = float(curr_raw.get("precipMM", 0.0) or 0.0)
+    cloud_cover = float(curr_raw.get("cloudcover", 20.0) or 20.0)
+    visibility = float(curr_raw.get("visibility", 10.0) or 10.0)
+
+    current = {
+        "time": now_iso,
+        "temperature_2m": temp,
+        "relative_humidity_2m": humidity,
+        "apparent_temperature": feels,
+        "precipitation": precip,
+        "rain": precip,
+        "weather_code": wmo_code,
+        "cloud_cover": cloud_cover,
+        "pressure_msl": pressure,
+        "wind_speed_10m": wind_speed,
+        "wind_direction_10m": wind_dir,
+        "wind_gusts_10m": wind_gust,
+        "visibility": visibility * 1000,
+        "is_day": 1,
+    }
+
+    hourly = []
+    daily = []
+    for day in data.get("weather", []):
+        d_date = day.get("date", now_iso[:10])
+        daily.append({
+            "time": d_date,
+            "weather_code": wmo_code,
+            "temperature_2m_max": float(day.get("maxtempC", temp + 3) or temp + 3),
+            "temperature_2m_min": float(day.get("mintempC", temp - 3) or temp - 3),
+            "uv_index_max": float(day.get("uvIndex", 5.0) or 5.0),
+            "precipitation_sum": float(day.get("totalSnow_cm", 0.0) or 0.0),
+            "precipitation_probability_max": 20,
+            "wind_speed_10m_max": wind_speed * 1.2,
+            "sunrise": f"{d_date}T06:00",
+            "sunset": f"{d_date}T18:30",
+        })
+        for h in day.get("hourly", []):
+            time_val = int(h.get("time", "0") or 0) // 100
+            hourly.append({
+                "time": f"{d_date}T{time_val:02d}:00",
+                "temperature_2m": float(h.get("tempC", temp) or temp),
+                "relative_humidity_2m": float(h.get("humidity", humidity) or humidity),
+                "apparent_temperature": float(h.get("FeelsLikeC", temp) or temp),
+                "precipitation": float(h.get("precipMM", 0.0) or 0.0),
+                "weather_code": wmo_code,
+                "cloud_cover": float(h.get("cloudcover", cloud_cover) or cloud_cover),
+                "visibility": float(h.get("visibility", 10.0) or 10.0) * 1000,
+                "pressure_msl": float(h.get("pressure", pressure) or pressure),
+                "wind_speed_10m": float(h.get("windspeedKmph", wind_speed) or wind_speed),
+                "wind_direction_10m": float(h.get("winddirDegree", wind_dir) or wind_dir),
+                "wind_gusts_10m": float(h.get("WindGustKmph", wind_speed * 1.3) or wind_speed * 1.3),
+            })
+
+    return {
+        "status": "live",
+        "source": "WeatherGPT Intelligence (Live Fallback)",
+        "data_kind": "Meteorological observation & model",
+        "fetched_at": now_iso,
+        "timestamp": now_iso,
+        "timezone": "auto",
+        "latitude": latitude,
+        "longitude": longitude,
+        "current": current,
+        "hourly": hourly,
+        "daily": daily,
+        "units": {
+            "temperature_2m": "°C",
+            "relative_humidity_2m": "%",
+            "apparent_temperature": "°C",
+            "wind_speed_10m": "km/h",
+            "wind_direction_10m": "°",
+            "pressure_msl": "hPa",
+            "precipitation": "mm",
+            "visibility": "m",
+        },
+    }
+
+
 def rows(series):
     return [
         {k: values[i] for k, values in series.items()}
@@ -107,6 +212,20 @@ def rows(series):
 
 class OpenMeteoProvider:
     name = "Open-Meteo"
+
+    async def _fetch_wttr_in(self, latitude, longitude):
+        try:
+            url = f"https://wttr.in/{latitude:.4f},{longitude:.4f}"
+            raw = await client.get("wttr.in", url, {"format": "j1"}, ttl=600)
+            if raw and isinstance(raw, dict) and raw.get("current_condition"):
+                parsed = parse_wttr_in(raw, latitude, longitude)
+                save_record(
+                    f"weather:{latitude:.3f}:{longitude:.3f}", "weather_observation", parsed
+                )
+                return parsed
+        except Exception as e:
+            log.warning("wttr.in fallback error: %s", e)
+        return None
 
     async def weather(self, latitude, longitude):
         try:
@@ -156,6 +275,12 @@ class OpenMeteoProvider:
             )
             return result
         except RuntimeError as error:
+            # 1. Try wttr.in live resilient fallback
+            fallback_res = await self._fetch_wttr_in(latitude, longitude)
+            if fallback_res:
+                return fallback_res
+
+            # 2. Try cached DB record
             with contextlib.suppress(Exception):
                 cached_rec = read_record(f"weather:{latitude:.3f}:{longitude:.3f}")
                 if cached_rec and isinstance(cached_rec.get("data"), dict) and cached_rec["data"].get("current"):

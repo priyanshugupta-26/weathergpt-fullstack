@@ -84,7 +84,40 @@ class WeatherIngestionService:
             "forecast_days": 1,
         }
         try:
-            data = await client.get("Open-Meteo Ingestion", "https://api.open-meteo.com/v1/forecast", params=params, ttl=60)
+            try:
+                data = await client.get("Open-Meteo Ingestion", "https://api.open-meteo.com/v1/forecast", params=params, ttl=60)
+            except Exception:
+                # Fallback to wttr.in for real-time observation
+                wttr_data = await client.get("wttr.in", f"https://wttr.in/{lat:.4f},{lon:.4f}", params={"format": "j1"}, ttl=60)
+                curr_w = (wttr_data.get("current_condition") or [{}])[0]
+                now_dt = datetime.now(timezone.utc).isoformat()
+                temp = float(curr_w.get("temp_C", 25.0) or 25.0)
+                hum = float(curr_w.get("humidity", 50.0) or 50.0)
+                press = float(curr_w.get("pressure", 1013.0) or 1013.0)
+                ws = float(curr_w.get("windspeedKmph", 10.0) or 10.0)
+                wd = float(curr_w.get("winddirDegree", 180.0) or 180.0)
+                wg = float(curr_w.get("WindGustKmph", ws * 1.3) or ws * 1.3)
+                pr = float(curr_w.get("precipMM", 0.0) or 0.0)
+                cc = float(curr_w.get("cloudcover", 20.0) or 20.0)
+                data = {
+                    "current": {
+                        "time": now_dt,
+                        "temperature_2m": temp,
+                        "relative_humidity_2m": hum,
+                        "dew_point_2m": temp - ((100 - hum) / 5),
+                        "apparent_temperature": float(curr_w.get("FeelsLikeC", temp) or temp),
+                        "precipitation": pr,
+                        "rain": pr,
+                        "surface_pressure": press,
+                        "wind_speed_10m": ws,
+                        "wind_direction_10m": wd,
+                        "wind_gusts_10m": wg,
+                        "cloud_cover": cc,
+                        "weather_code": 1,
+                    },
+                    "hourly": {},
+                }
+
             curr = data.get("current", {})
             if not curr:
                 return 0
