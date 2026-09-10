@@ -62,6 +62,7 @@ from .services.query import query_engine
 from .services.prediction import model_alerts
 from models.adapters.adapter import weather_model, disaster_model, FeatureBuilder
 from .ml.router import router as ml_router, auto_retrain_config
+from .routers.data_lab import router as data_lab_router
 from .ml.registry import model_registry
 from .ml.ingestion import ingestion_service
 from .ml.verification import verification_service
@@ -186,6 +187,7 @@ app = FastAPI(title="WeatherGPT API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.include_router(extension_router)
 app.include_router(ml_router)
+app.include_router(data_lab_router)
 
 from fastapi.exceptions import RequestValidationError
 
@@ -395,6 +397,58 @@ async def alerts_socket(ws: WebSocket):
                 pass
     except (WebSocketDisconnect, RuntimeError):
         log.info("websocket_disconnected")
+    finally:
+        websocket_clients -= 1
+
+
+@app.websocket("/ws/data-stream")
+async def data_stream_socket(ws: WebSocket):
+    global websocket_clients
+    origin = ws.headers.get("origin")
+    if (
+        origin
+        and urlparse(origin).netloc != ws.headers.get("host")
+        and origin not in settings.development_origins
+    ):
+        await ws.close(code=1008)
+        return
+    await ws.accept()
+    websocket_clients += 1
+    log.info("data_stream_websocket_connected")
+    last_sent_id = None
+    try:
+        from backend.services.data_lab import data_lab_service
+        while True:
+            stats = data_lab_service.get_top_summary_stats()
+            recent = data_lab_service.get_paginated_observations(page=1, page_size=20)
+            latest_id = recent["items"][0]["id"] if recent["items"] else None
+            is_new = latest_id != last_sent_id if last_sent_id is not None else False
+            last_sent_id = latest_id
+
+            await ws.send_json(
+                {
+                    "type": "data_stream_telemetry",
+                    "is_new_event": is_new,
+                    "stats": stats,
+                    "recent_observations": recent["items"],
+                    "timestamp": utcnow(),
+                }
+            )
+
+            try:
+                msg_text = await asyncio.wait_for(ws.receive_text(), timeout=3.0)
+                try:
+                    msg = json.loads(msg_text)
+                    if msg.get("action") == "trigger_ingest":
+                        loc_name = msg.get("location", "Patna")
+                        from backend.routers.data_lab import trigger_live_ingestion
+                        await trigger_live_ingestion(location=loc_name)
+                except Exception:
+                    pass
+            except asyncio.TimeoutError:
+                pass
+    except (WebSocketDisconnect, RuntimeError):
+        log.info("data_stream_websocket_disconnected")
     finally:
         websocket_clients -= 1
 

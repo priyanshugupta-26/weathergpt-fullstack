@@ -71,15 +71,15 @@ class PredictionVsActualService:
         for pred in pending:
             try:
                 target_dt = datetime.fromisoformat(pred.forecast_valid_at.replace("Z", "+00:00"))
-                window_start = (target_dt - timedelta(minutes=45)).isoformat()
-                window_end = (target_dt + timedelta(minutes=45)).isoformat()
+                window_start = (target_dt - timedelta(minutes=90)).isoformat()
+                window_end = (target_dt + timedelta(minutes=90)).isoformat()
 
                 with Session.begin() as db:
-                    # Find nearest real observation in the time window
+                    # Find nearest real observation in the time and location window
                     obs = db.scalars(
                         select(WeatherObservation).where(
-                            WeatherObservation.latitude == pred.latitude,
-                            WeatherObservation.longitude == pred.longitude,
+                            WeatherObservation.latitude.between(pred.latitude - 0.2, pred.latitude + 0.2),
+                            WeatherObservation.longitude.between(pred.longitude - 0.2, pred.longitude + 0.2),
                             WeatherObservation.data_type == "OBSERVATION",
                             WeatherObservation.timestamp >= window_start,
                             WeatherObservation.timestamp <= window_end,

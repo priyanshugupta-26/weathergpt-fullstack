@@ -21,7 +21,7 @@ import { api, type Row } from "@/lib/api";
 import { useApp } from "@/lib/context";
 
 export default function ModelLab() {
-  const { place, toast } = useApp();
+  const { place, toast, navigate } = useApp();
   const [status, setStatus] = useState<Row | null>(null);
   const [models, setModels] = useState<Row[]>([]);
   const [metricsData, setMetricsData] = useState<Row | null>(null);
@@ -173,10 +173,27 @@ export default function ModelLab() {
         title="WeatherGPT Own Machine Learning Lab"
         subtitle="Autonomous self-improving tabular forecasting engine (WeatherGPTML). Learns from real meteorological observations, executes multi-output time-series regressions, and promotes Challengers via strict validation gates."
       >
-        <button className="button secondary" onClick={loadAll} disabled={loading}>
-          <RefreshCw size={15} />
-          Refresh
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            className="button secondary"
+            onClick={() => navigate("/data-lab")}
+            style={{
+              background: "rgba(16, 185, 129, 0.15)",
+              color: "#34d399",
+              border: "1px solid rgba(16, 185, 129, 0.4)",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <Database size={15} />
+            Data & Learning Lab →
+          </button>
+          <button className="button secondary" onClick={loadAll} disabled={loading}>
+            <RefreshCw size={15} />
+            Refresh
+          </button>
+        </div>
       </Heading>
 
       {error && <div className="error-note">{error}</div>}

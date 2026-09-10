@@ -195,12 +195,46 @@ def get_champion_details():
 @router.get("/metrics")
 def get_verification_metrics(hours: int = Query(720, ge=1, le=8760)):
     """Returns rolling accuracy and prediction-vs-actual chart points."""
+    verification_service.verify_pending_predictions()
     rolling = verification_service.get_rolling_accuracy(hours=hours)
     chart_series = verification_service.get_recent_prediction_series("temperature_2m", limit=30)
     return {
         "rolling_accuracy": rolling,
         "prediction_vs_actual": chart_series,
     }
+
+
+@router.get("/metrics/history")
+def get_model_metrics_history():
+    """Returns historical performance and training metrics across all model versions."""
+    from backend.services.data_lab import data_lab_service
+    return {"history": data_lab_service.get_model_performance_history()}
+
+
+@router.get("/training-split")
+def get_champion_training_split():
+    """Returns chronological train/val/holdout split details and leakage prevention proof."""
+    from backend.services.data_lab import data_lab_service
+    return data_lab_service.get_champion_training_split()
+
+
+@router.get("/predictions/verification")
+def get_prediction_verification_details(
+    target: str = Query("temperature_2m"),
+    hours: int = Query(720, ge=1, le=8760),
+    limit: int = Query(50, ge=5, le=200),
+):
+    """Returns detailed prediction-vs-actual table and error metrics."""
+    verification_service.verify_pending_predictions()
+    rolling = verification_service.get_rolling_accuracy(hours=hours)
+    series = verification_service.get_recent_prediction_series(target_name=target, limit=limit)
+    return {
+        "target": target,
+        "rolling_metrics": rolling.get("targets", {}).get(target, {}),
+        "total_verified": rolling.get("total_verified", 0),
+        "items": series,
+    }
+
 
 
 @router.get("/drift")

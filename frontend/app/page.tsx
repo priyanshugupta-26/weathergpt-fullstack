@@ -17,6 +17,7 @@ import {
   LogOut,
   Building2,
   Cpu,
+  Database,
   Key,
 } from "lucide-react";
 import {
@@ -51,6 +52,7 @@ const Admin = lazy(() => import("./views/Admin"));
 const Dashboard = lazy(() => import("./views/Dashboard"));
 const CityMonitor = lazy(() => import("./views/CityMonitor"));
 const ModelLab = lazy(() => import("./views/ModelLab"));
+const DataLab = lazy(() => import("./views/DataLab"));
 const Setup = lazy(() => import("./views/Setup"));
 const defaultPlace = { name: "Patna", latitude: 25.5941, longitude: 85.1376, country: "India" };
 const nav = [
@@ -64,6 +66,7 @@ const nav = [
   ["/aviation", "Aviation", Plane],
   ["/marine", "Marine", Waves],
   ["/city-monitor", "Smart city", Building2],
+  ["/data-lab", "Data & Learning Lab", Database],
   ["/model-lab", "Model lab", Cpu],
   ["/dashboard", "My dashboard", LayoutDashboard],
 ] as const;
@@ -88,7 +91,7 @@ function Nav({ route, navigate }: { route: string; navigate: (s: string) => void
         <nav className="nav-group">
           {nav.map(([href, label, Icon], i) => (
             <div key={href}>
-              {[0, 5, 11].includes(i) && (
+              {[0, 5, 12].includes(i) && (
                 <span
                   className="eyebrow"
                   style={{ display: "block", padding: "15px 12px 8px", fontSize: 10 }}
@@ -425,6 +428,9 @@ export default function App() {
       break;
     case "/city-monitor":
       page = <CityMonitor />;
+      break;
+    case "/data-lab":
+      page = <DataLab />;
       break;
     case "/model-lab":
       page = <ModelLab />;
