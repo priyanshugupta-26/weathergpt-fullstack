@@ -176,6 +176,7 @@ export default function Register() {
               fontSize: 13,
               cursor: "pointer",
               transition: "all 0.15s ease",
+              userSelect: "none",
             }}
           >
             {t("auth.submitLogin", language) || "Sign In"}
@@ -192,9 +193,10 @@ export default function Register() {
               fontSize: 13,
               cursor: "default",
               boxShadow: "0 2px 8px rgba(102,224,212,0.3)",
+              userSelect: "none",
             }}
           >
-            {t("auth.createAccount", language) || "Create Account"}
+            Create Account
           </button>
         </div>
 
