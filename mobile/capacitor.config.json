@@ -1,0 +1,15 @@
+{
+  "appId": "gov.in.weathergpt",
+  "appName": "WeatherGPT",
+  "webDir": "../frontend/dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "http://127.0.0.1:8000",
+    "cleartext": true
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  }
+}

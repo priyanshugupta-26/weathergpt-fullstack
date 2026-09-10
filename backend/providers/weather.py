@@ -429,39 +429,55 @@ class OpenMeteoProvider:
 provider = OpenMeteoProvider()
 
 
-async def earthquakes():
+async def earthquakes(scope: str = "india"):
     try:
         data = await client.get(
             "USGS",
             "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson",
             ttl=300,
         )
+        all_events = [
+            {
+                "id": f["id"],
+                "longitude": f["geometry"]["coordinates"][0],
+                "latitude": f["geometry"]["coordinates"][1],
+                "depth": f["geometry"]["coordinates"][2],
+                "magnitude": f["properties"]["mag"],
+                "place": f["properties"]["place"],
+                "timestamp": datetime.fromtimestamp(
+                    f["properties"]["time"] / 1000, timezone.utc
+                ).isoformat(),
+                "url": f["properties"]["url"],
+            }
+            for f in data.get("features", [])
+        ]
+        if scope.lower() == "india":
+            # India + regional seismic hazard margin: Lat 5.0 to 38.5, Lon 60.0 to 100.0
+            events = [
+                e for e in all_events
+                if 5.0 <= e["latitude"] <= 38.5 and 60.0 <= e["longitude"] <= 100.0
+            ]
+            source_label = "USGS · India & Regional Seismic Margin (M2.5+)"
+        else:
+            events = all_events
+            source_label = "USGS · Global M2.5+ past 24 hours"
+
         return {
             "status": "live",
-            "source": "USGS · M2.5+ past 24 hours",
+            "source": source_label,
+            "scope": scope,
             "fetched_at": data.get("_fetched_at"),
-            "events": [
-                {
-                    "id": f["id"],
-                    "longitude": f["geometry"]["coordinates"][0],
-                    "latitude": f["geometry"]["coordinates"][1],
-                    "depth": f["geometry"]["coordinates"][2],
-                    "magnitude": f["properties"]["mag"],
-                    "place": f["properties"]["place"],
-                    "timestamp": datetime.fromtimestamp(
-                        f["properties"]["time"] / 1000, timezone.utc
-                    ).isoformat(),
-                    "url": f["properties"]["url"],
-                }
-                for f in data["features"]
-            ],
+            "events": events,
+            "total_count": len(events),
         }
     except RuntimeError as error:
         return {
             "status": "unavailable",
             "source": "USGS",
+            "scope": scope,
             "message": str(error),
             "events": [],
+            "total_count": 0,
         }
 
 

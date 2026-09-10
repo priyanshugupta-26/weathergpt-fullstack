@@ -17,3 +17,9 @@ frontend/*.tsbuildinfo
 *.log
 models/*.pkl
 *.pid
+node_modules/
+android/.gradle/
+android/app/build/
+android/build/
+*.apk
+

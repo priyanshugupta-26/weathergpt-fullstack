@@ -393,3 +393,90 @@ def test_forecast_source_selection(client):
     d_om = r_om.json()
     assert d_om["status"] in ("live", "degraded")
 
+
+def test_capacitor_cors_preflight(client):
+    """Test Capacitor origin preflight options handling."""
+    response = client.options(
+        "/api/auth/login",
+        headers={
+            "Origin": "capacitor://localhost",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Authorization, Content-Type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["Access-Control-Allow-Origin"] == "capacitor://localhost"
+    assert "Authorization" in response.headers["Access-Control-Allow-Headers"]
+
+
+def test_push_device_registration_and_status(client):
+    """Test mobile device registration, listing, and push status."""
+    acc = {
+        "email": "mobile_push_test@weathergpt.gov.in",
+        "password": "Password123!",
+        "full_name": "Mobile Tester",
+        "district": "Patna",
+        "state": "Bihar",
+    }
+    client.post("/api/auth/register", json=acc)
+    login_res = client.post("/api/auth/login", json={"email": acc["email"], "password": acc["password"]})
+    assert login_res.status_code == 200
+    token = login_res.json().get("token")
+    assert token is not None
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Register Android device
+    reg = client.post(
+        "/api/push/register-device",
+        json={
+            "platform": "android",
+            "device_token": "test_fcm_token_xyz123",
+            "device_name": "Pixel 8 Pro",
+        },
+        headers=headers,
+    )
+    assert reg.status_code == 200
+    data = reg.json()
+    assert data["status"] == "registered"
+    assert data["platform"] == "android"
+    assert data["device_name"] == "Pixel 8 Pro"
+
+    # 2. List devices
+    devices = client.get("/api/push/devices", headers=headers)
+    assert devices.status_code == 200
+    dev_list = devices.json()["devices"]
+    assert len(dev_list) >= 1
+    assert any(d["device_name"] == "Pixel 8 Pro" for d in dev_list)
+
+    # 3. Check push system status
+    status = client.get("/api/push/status", headers=headers)
+    assert status.status_code == 200
+    st_data = status.json()
+    assert "firebase" in st_data
+    assert "registered_devices_count" in st_data
+    assert st_data["registered_devices_count"] >= 1
+
+    # 4. Test push dispatch (graceful fallback if credentials missing)
+    test_push = client.post(
+        "/api/push/test",
+        json={
+            "device_token": "test_fcm_token_xyz123",
+            "title": "Test Ping",
+            "message": "Testing FCM pipeline",
+        },
+        headers=headers,
+    )
+    assert test_push.status_code == 200
+    res = test_push.json()
+    assert res["status"] in ("sent", "not_configured", "failed")
+
+    # 5. Unregister device
+    unreg = client.post(
+        "/api/push/unregister-device",
+        json={"device_token": "test_fcm_token_xyz123"},
+        headers=headers,
+    )
+    assert unreg.status_code == 200
+    assert unreg.json()["status"] == "unregistered"
+

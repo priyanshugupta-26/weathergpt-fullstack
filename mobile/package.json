@@ -1,0 +1,17 @@
+{
+  "name": "weathergpt-mobile",
+  "version": "1.0.0",
+  "description": "WeatherGPT Native Mobile App Wrapper (Capacitor Android & iOS)",
+  "main": "index.js",
+  "scripts": {
+    "build:web": "cd ../frontend && npm run build",
+    "cap:sync": "npx cap sync",
+    "cap:android": "npx cap open android",
+    "build:apk": "cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/push-notifications": "^6.0.0"
+  }
+}

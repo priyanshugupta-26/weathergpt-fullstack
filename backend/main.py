@@ -7,7 +7,7 @@ import secrets
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timezone, timedelta
 from urllib.parse import urlparse
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
 from fastapi import (
@@ -61,7 +61,13 @@ from .providers.cap import cap_provider
 from .services.fusion import AlertFusionEngine, active
 from .ai.router import ai_router
 from .extensions import router as extension_router
-from .services.alerts import alerts_service
+from .services.alerts import alerts_service, india_alert_aggregator
+from .services.notifications import notifications_service
+from .providers.gfs import gfs_provider, wrf_provider
+from .providers.bhashini import bhashini_provider
+from .services.wis2 import wis2_consumer
+from .services.climate import climate_service
+from .routers.system_status import router as system_status_router
 from .services.query import query_engine
 from .services.prediction import model_alerts
 from models.adapters.adapter import weather_model, disaster_model, FeatureBuilder
@@ -177,14 +183,17 @@ async def lifespan(app):
                         role="admin",
                     )
                 )
+    wis2_consumer.start_background()
     task = asyncio.create_task(scheduler()) if settings.scheduler_enabled else None
-    log.info("startup database_ready=true scheduler=%s", settings.scheduler_enabled)
+    log.info("startup database_ready=true scheduler=%s wis2=%s", settings.scheduler_enabled, wis2_consumer.is_connected)
     yield
+    wis2_consumer.stop()
     if task:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
-    await client.close()
+    with contextlib.suppress(Exception):
+        await client.close()
 
 
 app = FastAPI(title="WeatherGPT API", version="1.0.0", lifespan=lifespan)
@@ -192,6 +201,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.include_router(extension_router)
 app.include_router(ml_router)
 app.include_router(data_lab_router)
+app.include_router(system_status_router)
 
 from fastapi.exceptions import RequestValidationError
 
@@ -204,13 +214,34 @@ async def invalid_request(request, error):
 async def security(request: Request, call_next):
     global requests_count
     requests_count += 1
-    if request.method in ("POST", "PATCH", "DELETE"):
-        origin = request.headers.get("origin")
+
+    origin = request.headers.get("origin")
+    is_allowed_origin = False
+    if origin:
+        host = request.headers.get("host")
+        parsed = urlparse(origin)
         if (
-            origin
-            and urlparse(origin).netloc != request.headers.get("host")
-            and origin not in settings.development_origins
+            (host and parsed.netloc == host)
+            or origin in settings.development_origins
+            or parsed.hostname in ("localhost", "127.0.0.1")
+            or parsed.scheme in ("capacitor", "ionic")
         ):
+            is_allowed_origin = True
+
+    if request.method == "OPTIONS":
+        return Response(
+            status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": origin or "*",
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Origin, X-Requested-With",
+                "Access-Control-Max-Age": "86400",
+            },
+        )
+
+    if request.method in ("POST", "PATCH", "DELETE"):
+        if origin and not is_allowed_origin:
             return JSONResponse(
                 {"detail": "Cross-origin mutation rejected"}, status_code=403
             )
@@ -220,6 +251,7 @@ async def security(request: Request, call_next):
             return JSONResponse({"detail": "Invalid content length"}, status_code=400)
         if content_length > 32768:
             return JSONResponse({"detail": "Request too large"}, status_code=413)
+
     if request.url.path.startswith("/api/"):
         group = "auth" if "/auth/" in request.url.path else "chat" if "/chat" in request.url.path else "api"
         key = (request.client.host if request.client else "unknown", group)
@@ -234,12 +266,18 @@ async def security(request: Request, call_next):
                 headers={"Retry-After": "60"},
             )
         bucket.append(now)
+
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["X-Frame-Options"] = "DENY"
     if request.url.path.startswith("/api"):
         response.headers["Cache-Control"] = "no-store"
+
+    if is_allowed_origin and origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+
     return response
 
 
@@ -337,8 +375,8 @@ async def weather_grid(coords: Coordinates = Depends()):
 
 
 @app.get("/api/earthquakes")
-async def quake():
-    return await earthquakes()
+async def quake(scope: str = "india"):
+    return await earthquakes(scope=scope)
 
 
 @app.get("/api/cyclones")
@@ -360,6 +398,208 @@ async def alerts(coords: Coordinates = Depends()):
         "official_feed": imd.status()["status"],
         "timestamp": utcnow(),
     }
+
+
+@app.get("/api/alerts/aggregated")
+@app.get("/api/disasters/feed")
+async def get_aggregated_disasters(
+    scope: str = "india",
+    latitude: float | None = None,
+    longitude: float | None = None,
+    district: str | None = None,
+    state: str | None = None,
+):
+    return await india_alert_aggregator.aggregate(
+        latitude=latitude,
+        longitude=longitude,
+        district=district,
+        state=state,
+        scope=scope,
+    )
+
+
+# ----------------------------------------------------
+# Push Notifications & In-App Notification Center
+# ----------------------------------------------------
+
+@app.get("/api/notifications/vapid-key")
+@app.get("/api/notifications/vapid-public-key")
+async def get_vapid_public_key():
+    return {
+        "public_key": notifications_service.public_key,
+        "publicKey": notifications_service.public_key,
+    }
+
+
+@app.post("/api/notifications/subscribe")
+async def subscribe_push(payload: dict, user = Depends(require_user)):
+    sub_data = payload.get("subscription") or payload
+    dev_name = payload.get("device_name", "Web Browser")
+    try:
+        return notifications_service.subscribe_user(user.id, sub_data, dev_name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/notifications/unsubscribe")
+async def unsubscribe_push(payload: dict, user = Depends(require_user)):
+    endpoint = payload.get("endpoint", "")
+    if endpoint:
+        notifications_service.unsubscribe_user(user.id, endpoint)
+    return {"status": "unsubscribed"}
+
+
+@app.get("/api/notifications")
+async def list_notifications(
+    unread_only: bool = False,
+    category: str | None = None,
+    limit: int = 50,
+    user = Depends(require_user),
+):
+    items = notifications_service.get_in_app_notifications(
+        user_id=user.id,
+        unread_only=unread_only,
+        category=category,
+        limit=limit,
+    )
+    unread_count = len([i for i in items if not i["is_read"]])
+    return {"notifications": items, "unread_count": unread_count}
+
+
+@app.post("/api/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: int, user = Depends(require_user)):
+    notifications_service.mark_as_read(user.id, notification_id)
+    return {"status": "ok"}
+
+
+@app.post("/api/notifications/read-all")
+async def mark_all_notifications_read(user = Depends(require_user)):
+    notifications_service.mark_all_read(user.id)
+    return {"status": "ok"}
+
+
+@app.delete("/api/notifications/{notification_id}")
+async def delete_notification(notification_id: int, user = Depends(require_user)):
+    notifications_service.delete_notification(user.id, notification_id)
+    return {"status": "ok"}
+
+
+@app.post("/api/notifications/test-dispatch")
+async def test_dispatch_notification(user = Depends(require_user)):
+    test_alert = {
+        "id": f"test:{int(time.time())}",
+        "headline": "Severe Thunderstorm Warning",
+        "severity": "WARNING",
+        "event": "Thunderstorm with Lightning Likely",
+        "instruction": "Take shelter inside sturdy buildings. Avoid open fields and tall trees.",
+        "location": user.district or user.city or "Registered Location",
+        "source": "IMD / NDMA Sachet",
+        "expires": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+    }
+    delivered = notifications_service.deliver_alert_to_user(test_alert, user.id, user.city or "Your Location")
+    return {"status": "dispatched", "delivered": delivered}
+
+
+# ----------------------------------------------------
+# Native Mobile & FCM Push Endpoints (Sections 10-12, 20, 71)
+# ----------------------------------------------------
+
+@app.post("/api/push/register-device")
+async def register_push_device(payload: dict, user = Depends(require_user)):
+    platform = payload.get("platform", "android")
+    device_token = payload.get("device_token") or payload.get("token")
+    device_name = payload.get("device_name", "Android Device")
+    p256dh = payload.get("p256dh")
+    auth = payload.get("auth")
+    if not device_token:
+        raise HTTPException(400, "device_token is required")
+    try:
+        return notifications_service.register_device(
+            user_id=user.id,
+            platform=platform,
+            device_token=device_token,
+            device_name=device_name,
+            p256dh=p256dh,
+            auth=auth,
+        )
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/push/unregister-device")
+async def unregister_push_device(payload: dict, user = Depends(require_user)):
+    device_token = payload.get("device_token") or payload.get("token")
+    if not device_token:
+        raise HTTPException(400, "device_token is required")
+    return notifications_service.unregister_device(user.id, device_token)
+
+
+@app.get("/api/push/devices")
+async def list_push_devices(user = Depends(require_user)):
+    return {"devices": notifications_service.get_user_devices(user.id)}
+
+
+@app.post("/api/push/test")
+async def send_test_push(payload: dict | None = None, user = Depends(require_user)):
+    data = payload or {}
+    target_user_id = user.id
+    if user.role == "admin" and data.get("user_id"):
+        target_user_id = int(data["user_id"])
+    target_token = data.get("device_token")
+    title = data.get("title") or "WeatherGPT Test Notification"
+    message = data.get("message") or "This confirms Android push notifications are working."
+    return notifications_service.send_test_push(
+        user_id=target_user_id,
+        device_token=target_token,
+        title=title,
+        message=message,
+    )
+
+
+@app.get("/api/push/status")
+async def push_status(user = Depends(require_user)):
+    return notifications_service.get_system_push_status()
+
+
+
+# ----------------------------------------------------
+# Numerical Weather Prediction (NWP) - GFS & WRF
+# ----------------------------------------------------
+
+@app.get("/api/nwp/gfs")
+async def get_gfs_nwp(latitude: float = 25.5941, longitude: float = 85.1376, forecast_hours: int = 48):
+    return await gfs_provider.get_forecast(latitude, longitude, forecast_hours)
+
+
+@app.get("/api/nwp/wrf")
+async def get_wrf_status():
+    return wrf_provider.status()
+
+
+# ----------------------------------------------------
+# Multi-Decade Climate Reanalysis (10, 20, 30 Years)
+# ----------------------------------------------------
+
+@app.get("/api/climate/multi-decade")
+async def get_multi_decade_climate(latitude: float = 25.5941, longitude: float = 85.1376, years: int = 10):
+    return await climate_service.get_multi_decade_analysis(latitude, longitude, years=years)
+
+
+# ----------------------------------------------------
+# BHASHINI Multilingual AI
+# ----------------------------------------------------
+
+@app.get("/api/bhashini/status")
+async def get_bhashini_status():
+    return bhashini_provider.status()
+
+
+@app.post("/api/bhashini/translate")
+async def bhashini_translate(payload: dict):
+    text = payload.get("text", "")
+    src = payload.get("source_language", "en")
+    tgt = payload.get("target_language", "hi")
+    return await bhashini_provider.translate(text, src, tgt)
 
 
 @app.websocket("/ws/alerts")
@@ -470,7 +710,7 @@ async def chat(payload: ChatRequest, request: Request):
                 db.add(
                     ChatMessage(
                         user_id=user.id,
-                        conversation=payload.conversation,
+                        conversation=payload.conversation or "default",
                         role=role,
                         content=content,
                     )
@@ -783,7 +1023,9 @@ async def register(payload: RegisterInput, response: Response):
             samesite="lax",
             max_age=settings.session_days * 86400,
         )
-        return public_user(user)
+        user_data = public_user(user)
+        user_data["token"] = token
+        return user_data
 
 
 @app.post("/api/auth/login")
@@ -825,7 +1067,9 @@ async def login(payload: LoginInput, response: Response):
             samesite="lax",
             max_age=settings.session_days * 86400,
         )
-        return public_user(user)
+        user_data = public_user(user)
+        user_data["token"] = token
+        return user_data
 
 
 DUMMY_HASH = hasher.hash(secrets.token_urlsafe(24))
@@ -834,6 +1078,10 @@ DUMMY_HASH = hasher.hash(secrets.token_urlsafe(24))
 @app.post("/api/auth/logout")
 async def logout(request: Request, response: Response):
     token = request.cookies.get("wg_session", "")
+    if not token:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.removeprefix("Bearer ").strip()
     if token:
         with Session.begin() as db:
             db.execute(

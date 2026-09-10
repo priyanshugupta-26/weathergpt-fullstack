@@ -30,13 +30,33 @@ class Settings(BaseSettings):
     provider_timeout: float = 12
     session_days: int = 7
     secure_cookies: bool = False
-    development_origins: list[str] = ["http://127.0.0.1:5173", "http://localhost:5173"]
+    development_origins: list[str] = [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://localhost",
+        "https://localhost",
+        "capacitor://localhost",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "https://weathergpt-fullstack.onrender.com",
+    ]
     trusted_models: bool = False
     admin_email: str = ""
     admin_password: str = ""
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = "gpt-4.1-mini"
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_claim_email: str = "mailto:alerts@weathergpt.gov.in"
+    firebase_credentials_path: str = ""
+    firebase_service_account_json: str = ""
+    wis2_broker_host: str = "globalbroker.meteo.unige.ch"
+    wis2_broker_port: int = 8883
+    wis2_topic: str = "origin/a/wis2/#"
+    bhashini_api_key: str = ""
+    bhashini_user_id: str = ""
+    bhashini_pipeline_id: str = ""
 
 
 settings = Settings()

@@ -20,7 +20,17 @@ import {
   Database,
   Key,
   Globe,
+  Layers,
+  Radio,
+  Mic,
+  ShieldCheck,
+  MoreHorizontal,
+  Wifi,
+  WifiOff,
+  X,
+  Zap,
 } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 import {
   Sidebar,
   SidebarProvider,
@@ -34,13 +44,21 @@ import { Choice } from "@/components/WeatherUI";
 import { Context } from "@/lib/context";
 import {
   api,
+  getWsBaseUrl,
   locationQuery,
   readLocal,
   writeLocal,
   type Place,
   type Weather,
   type Row,
+  getCachedWeather,
+  setCachedWeather,
+  getConnectionStatus,
+  isLowDataMode,
+  setLowDataMode,
+  type ConnectionStatus,
 } from "@/lib/api";
+import { pushManager } from "@/lib/push";
 import { LANGUAGES, t, isRTL, getLanguageInfo } from "@/lib/i18n";
 const Home = lazy(() => import("./views/Home"));
 const Forecast = lazy(() => import("./views/Forecast"));
@@ -59,20 +77,33 @@ const Setup = lazy(() => import("./views/Setup"));
 const Register = lazy(() => import("./views/Register"));
 const Login = lazy(() => import("./views/Login"));
 const Onboarding = lazy(() => import("./views/Onboarding"));
+const Notifications = lazy(() => import("./views/Notifications"));
+const NWP = lazy(() => import("./views/NWP"));
+const Dissemination = lazy(() => import("./views/Dissemination"));
+const RuralVoice = lazy(() => import("./views/RuralVoice"));
+const Sources = lazy(() => import("./views/Sources"));
+const SIHReadiness = lazy(() => import("./views/SIHReadiness"));
+
 const defaultPlace = { name: "Patna", latitude: 25.5941, longitude: 85.1376, country: "India" };
 const nav = [
   ["/dashboard", "My dashboard", LayoutDashboard, "nav.dashboard"],
   ["/globe", "Live globe", Globe2, "nav.globe"],
   ["/forecast", "Forecast", CloudSun, "nav.forecast"],
   ["/chat", "WeatherGPT", Sparkles, "nav.chat"],
-  ["/alerts", "Alert center", ShieldAlert, "nav.alerts"],
+  ["/rural", "Rural & Voice", Mic, "nav.rural"],
+  ["/alerts", "Disaster center", ShieldAlert, "nav.alerts"],
+  ["/notifications", "Notifications", Bell, "nav.notifications"],
+  ["/nwp", "NWP / GFS 0.25°", Layers, "nav.nwp"],
   ["/climate", "Climate analytics", ChartNoAxesCombined, "nav.climate"],
   ["/agriculture", "Agriculture", Leaf, "nav.agriculture"],
   ["/aviation", "Aviation", Plane, "nav.aviation"],
   ["/marine", "Marine", Waves, "nav.marine"],
   ["/city-monitor", "Smart city", Building2, "nav.cityMonitor"],
+  ["/dissemination", "Dissemination demo", Radio, "nav.dissemination"],
   ["/data-lab", "Data & Learning Lab", Database, "nav.dataLab"],
   ["/model-lab", "Model lab", Cpu, "nav.modelLab"],
+  ["/sources", "Data sources", Database, "nav.sources"],
+  ["/sih-readiness", "SIH 26068 Matrix", ShieldCheck, "nav.sihReadiness"],
 ] as const;
 
 function Nav({ route, navigate, language }: { route: string; navigate: (s: string) => void; language: string }) {
@@ -96,12 +127,12 @@ function Nav({ route, navigate, language }: { route: string; navigate: (s: strin
         <nav className="nav-group">
           {nav.map(([href, label, Icon, navKey], i) => (
             <div key={href}>
-              {[0, 5, 10].includes(i) && (
+              {[0, 7, 14].includes(i) && (
                 <span
                   className="eyebrow"
                   style={{ display: "block", padding: "15px 12px 8px", fontSize: 10 }}
                 >
-                  {i === 0 ? "WORKSPACE" : i === 5 ? "INTELLIGENCE" : "PERSONAL"}
+                  {i === 0 ? "WORKSPACE" : i === 7 ? "METEOROLOGY & SECTORS" : "INTELLIGENCE & AUDIT"}
                 </span>
               )}
               <a
@@ -184,7 +215,19 @@ export default function App() {
       readLocal("wg.notifications", {}),
     ),
     [toastText, setToastText] = useState(""),
-    [forecastSource, setForecastSourceState] = useState(() => readLocal("wg.forecastSource", "AUTO"));
+    [forecastSource, setForecastSourceState] = useState(() => readLocal("wg.forecastSource", "AUTO")),
+    [showMoreSheet, setShowMoreSheet] = useState(false),
+    [connStatus, setConnStatus] = useState<ConnectionStatus>(() => getConnectionStatus()),
+    [lowData, setLowDataState] = useState(() => isLowDataMode());
+
+  const toggleLowDataMode = useCallback(() => {
+    setLowDataState((prev) => {
+      const next = !prev;
+      setLowDataMode(next);
+      return next;
+    });
+  }, []);
+
   const setForecastSource = useCallback((s: string) => {
     setForecastSourceState(s);
     writeLocal("wg.forecastSource", s);
@@ -219,6 +262,60 @@ export default function App() {
     window.addEventListener("popstate", pop);
     return () => window.removeEventListener("popstate", pop);
   }, []);
+
+  // Network connection status listeners (Section 31)
+  useEffect(() => {
+    const onOnline = () => {
+      setConnStatus("ONLINE");
+      setTick((t) => t + 1);
+    };
+    const onOffline = () => setConnStatus("OFFLINE");
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
+  // Android hardware back button handling (Section 34)
+  useEffect(() => {
+    let sub: any;
+    if (Capacitor.isNativePlatform()) {
+      import("@capacitor/app").then(({ App }) => {
+        sub = App.addListener("backButton", () => {
+          if (showMoreSheet) {
+            setShowMoreSheet(false);
+          } else if (route !== "/dashboard" && route !== "/") {
+            navigate("/dashboard");
+          } else {
+            App.exitApp();
+          }
+        });
+      });
+    }
+    return () => {
+      if (sub?.remove) sub.remove();
+    };
+  }, [showMoreSheet, route, navigate]);
+
+  // Push Notifications & Deep Link Listener (Sections 10, 17, 18)
+  useEffect(() => {
+    if (user) {
+      pushManager.initPush((notification) => {
+        setToastText(`🚨 ${notification.title || "Alert"}: ${notification.body || ""}`);
+        setTick((t) => t + 1);
+      });
+    }
+    const onNav = (e: any) => {
+      if (e.detail?.url) {
+        navigate(e.detail.url);
+      }
+    };
+    window.addEventListener("wg:navigate", onNav);
+    return () => window.removeEventListener("wg:navigate", onNav);
+  }, [user, navigate]);
+
   useEffect(() => {
     if (!toastText) return;
     const t = setTimeout(() => setToastText(""), 4500);
@@ -269,6 +366,13 @@ export default function App() {
     const controller = new AbortController();
     setLoading(true);
     setError("");
+
+    // Stale-While-Revalidate: Instant cached weather display (Sections 28, 29)
+    const cached = getCachedWeather(place);
+    if (cached && !weather) {
+      setWeather(cached);
+    }
+
     const srcParam =
       forecastSource === "WEATHERGPT ML"
         ? "&source=weathergpt_ml"
@@ -280,10 +384,17 @@ export default function App() {
     api<Weather>(`/api/weather/forecast?${locationQuery(place)}${srcParam}`, { signal: controller.signal })
       .then((w) => {
         setWeather(w);
+        setCachedWeather(place, w);
         if (w.status !== "live") setError(w.message || "Weather unavailable");
       })
       .catch((e) => {
-        if (e.name !== "AbortError") setError(e.message);
+        if (e.name !== "AbortError") {
+          if (cached) {
+            setError(`Offline/Low Connectivity — Showing cached weather from ${cached._cached_at || "earlier"}`);
+          } else {
+            setError(e.message);
+          }
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -306,7 +417,7 @@ export default function App() {
     const seen = new Set<string>();
     const connect = () => {
       socket = new WebSocket(
-        `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/alerts?${locationQuery(place)}`,
+        `${getWsBaseUrl()}/ws/alerts?${locationQuery(place)}`,
       );
       socket.onopen = () => {
         attempt = 0;
@@ -538,6 +649,25 @@ export default function App() {
     case "/setup":
       page = <Setup />;
       break;
+    case "/notifications":
+      page = <Notifications />;
+      break;
+    case "/nwp":
+      page = <NWP />;
+      break;
+    case "/dissemination":
+      page = <Dissemination />;
+      break;
+    case "/rural":
+    case "/voice":
+      page = <RuralVoice />;
+      break;
+    case "/sources":
+      page = <Sources />;
+      break;
+    case "/sih-readiness":
+      page = <SIHReadiness />;
+      break;
     case "/profile":
     case "/settings":
       page = <Account />;
@@ -562,9 +692,57 @@ export default function App() {
           <Nav route={route} navigate={navigate} language={language} />
         </Sidebar>
         <div className="shell">
+          {alerts.some((a) =>
+            ["SEVERE", "WARNING", "EXTREME", "RED", "EMERGENCY"].includes(a.severity?.toUpperCase()),
+          ) && (
+            <div className="top-warning-banner" role="alert">
+              <div className="banner-left">
+                <span className="banner-pulse" />
+                <span style={{ fontWeight: 800, color: "#fca5a5", letterSpacing: "0.05em" }}>
+                  🔴 SEVERE WEATHER WARNING:
+                </span>
+                <span>
+                  {(() => {
+                    const w = alerts.find((a) =>
+                      ["SEVERE", "WARNING", "EXTREME", "RED", "EMERGENCY"].includes(
+                        a.severity?.toUpperCase(),
+                      ),
+                    );
+                    return `${w?.description || w?.event || "Critical Alert"} for ${w?.location || place.name}. ${
+                      w?.expires ? `Valid until ${new Date(w.expires).toLocaleTimeString()}` : ""
+                    }`;
+                  })()}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button
+                  className="button"
+                  style={{
+                    background: "#fff",
+                    color: "#991b1b",
+                    fontWeight: 700,
+                    padding: "3px 10px",
+                    fontSize: 11,
+                  }}
+                  onClick={() => navigate("/alerts")}
+                >
+                  View Details
+                </button>
+              </div>
+            </div>
+          )}
+
           <header className="topbar">
             <SidebarTrigger aria-label="Toggle navigation" />
             <span className="topbar-label">Weather intelligence</span>
+            <span
+              className={`network-badge ${connStatus === "ONLINE" ? "online" : connStatus === "SLOW CONNECTION" ? "slow" : "offline"}`}
+              title={`Network Connectivity: ${connStatus}`}
+              style={{ cursor: "default", marginRight: 4 }}
+            >
+              {connStatus === "ONLINE" ? <Wifi size={11} /> : <WifiOff size={11} />}
+              <span style={{ fontSize: 9 }}>{connStatus}</span>
+            </span>
             <Search />
             <div
               className="forecast-source-pills"
@@ -659,8 +837,9 @@ export default function App() {
             </div>
             <button
               className="icon-btn"
-              aria-label="Open alert center"
-              onClick={() => navigate("/alerts")}
+              aria-label="Open notifications"
+              onClick={() => navigate("/notifications")}
+              title="Notification Center"
             >
               <Bell size={17} />
               {alerts.length > 0 && <span className="dot" />}
@@ -695,6 +874,180 @@ export default function App() {
           </main>
         </div>
       </SidebarProvider>
+
+      {/* Mobile Bottom Navigation Bar (Section 4) */}
+      <nav className="mobile-bottom-nav" aria-label="Mobile Bottom Navigation">
+        <button
+          className={`mobile-nav-item ${route === "/dashboard" || route === "/" ? "active" : ""}`}
+          onClick={() => { setShowMoreSheet(false); navigate("/dashboard"); }}
+        >
+          <LayoutDashboard size={18} />
+          <span>Home</span>
+        </button>
+        <button
+          className={`mobile-nav-item ${route === "/forecast" ? "active" : ""}`}
+          onClick={() => { setShowMoreSheet(false); navigate("/forecast"); }}
+        >
+          <CloudSun size={18} />
+          <span>Forecast</span>
+        </button>
+        <button
+          className={`mobile-nav-item ${route === "/chat" ? "active" : ""}`}
+          onClick={() => { setShowMoreSheet(false); navigate("/chat"); }}
+        >
+          <Sparkles size={18} />
+          <span>WeatherGPT</span>
+        </button>
+        <button
+          className={`mobile-nav-item ${route === "/alerts" ? "active" : ""}`}
+          onClick={() => { setShowMoreSheet(false); navigate("/alerts"); }}
+        >
+          <ShieldAlert size={18} />
+          <span>Alerts</span>
+        </button>
+        <button
+          className={`mobile-nav-item ${showMoreSheet ? "active" : ""}`}
+          onClick={() => setShowMoreSheet((s) => !s)}
+        >
+          <MoreHorizontal size={18} />
+          <span>More</span>
+        </button>
+      </nav>
+
+      {/* Mobile More Sheet / Drawer (Section 4, 33) */}
+      {showMoreSheet && (
+        <>
+          <div className="mobile-more-backdrop" onClick={() => setShowMoreSheet(false)} />
+          <div className="mobile-more-sheet" role="dialog" aria-modal="true" aria-label="More Features">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--line)", paddingBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <CloudSun size={20} style={{ color: "var(--cyan)" }} />
+                <span style={{ fontWeight: 800, fontSize: 16 }}>More WeatherGPT Services</span>
+              </div>
+              <button className="icon-btn" onClick={() => setShowMoreSheet(false)} aria-label="Close menu">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Quick Status & Low Data Toggle */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0 6px", padding: "8px 12px", background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid var(--line)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className={`network-badge ${connStatus === "ONLINE" ? "online" : connStatus === "SLOW CONNECTION" ? "slow" : "offline"}`}>
+                  {connStatus === "ONLINE" ? <Wifi size={11} /> : <WifiOff size={11} />}
+                  <span>{connStatus}</span>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={toggleLowDataMode}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: lowData ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.06)",
+                  border: `1px solid ${lowData ? "#10b981" : "var(--line)"}`,
+                  color: lowData ? "#10b981" : "var(--muted)",
+                  borderRadius: 8,
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                <Zap size={13} />
+                <span>Low Data: {lowData ? "ON" : "OFF"}</span>
+              </button>
+            </div>
+
+            <div className="mobile-more-grid">
+              <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/globe"); }}>
+                <Globe2 size={22} style={{ color: "#38bdf8" }} />
+                <span>Live Globe</span>
+              </div>
+              <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/climate"); }}>
+                <ChartNoAxesCombined size={22} style={{ color: "#f59e0b" }} />
+                <span>Climate</span>
+              </div>
+              <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/agriculture"); }}>
+                <Leaf size={22} style={{ color: "#10b981" }} />
+                <span>Agriculture</span>
+              </div>
+              <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/aviation"); }}>
+                <Plane size={22} style={{ color: "#a855f7" }} />
+                <span>Aviation</span>
+              </div>
+              <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/marine"); }}>
+                <Waves size={22} style={{ color: "#06b6d4" }} />
+                <span>Marine</span>
+              </div>
+              <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/city-monitor"); }}>
+                <Building2 size={22} style={{ color: "#ec4899" }} />
+                <span>Smart City</span>
+              </div>
+              <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/nwp"); }}>
+                <Layers size={22} style={{ color: "#6366f1" }} />
+                <span>NWP / GFS</span>
+              </div>
+              <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/rural"); }}>
+                <Mic size={22} style={{ color: "#ef4444" }} />
+                <span>Rural Voice</span>
+              </div>
+              <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/data-lab"); }}>
+                <Database size={22} style={{ color: "#14b8a6" }} />
+                <span>Data Lab</span>
+              </div>
+              {(user?.role === "admin" || true) && (
+                <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/model-lab"); }}>
+                  <Cpu size={22} style={{ color: "#8b5cf6" }} />
+                  <span>Model Lab</span>
+                </div>
+              )}
+              <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/notifications"); }}>
+                <Bell size={22} style={{ color: "#eab308" }} />
+                <span>Notifications</span>
+              </div>
+              <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/profile"); }}>
+                <User size={22} style={{ color: "#94a3b8" }} />
+                <span>Profile</span>
+              </div>
+              <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/sources"); }}>
+                <Database size={22} style={{ color: "#64748b" }} />
+                <span>Data Sources</span>
+              </div>
+              <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/sih-readiness"); }}>
+                <ShieldCheck size={22} style={{ color: "#22c55e" }} />
+                <span>SIH Matrix</span>
+              </div>
+              {user?.role === "admin" && (
+                <div className="mobile-more-card" onClick={() => { setShowMoreSheet(false); navigate("/admin"); }}>
+                  <Key size={22} style={{ color: "#f97316" }} />
+                  <span>Admin</span>
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+              <button
+                className="button secondary"
+                style={{ width: "100%", justifyContent: "center", color: "#f87171", borderColor: "rgba(239, 68, 68, 0.3)" }}
+                onClick={async () => {
+                  try {
+                    await api("/api/auth/logout", { method: "POST" });
+                  } catch {}
+                  localStorage.removeItem("wg.token");
+                  setUser(null);
+                  setShowMoreSheet(false);
+                  navigate("/login");
+                }}
+              >
+                <LogOut size={16} />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {toastText && (
         <div className="toast" role="status">
           {toastText}

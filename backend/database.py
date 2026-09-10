@@ -82,6 +82,60 @@ class ChatMessage(Base):
     created: Mapped[str] = mapped_column(String(40), default=now)
 
 
+class UserPushSubscription(Base):
+    __tablename__ = "user_push_subscriptions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    endpoint: Mapped[str] = mapped_column(Text, index=True)
+    p256dh: Mapped[str] = mapped_column(Text)
+    auth: Mapped[str] = mapped_column(Text)
+    device_name: Mapped[str] = mapped_column(String(100), default="Web Browser")
+    created_at: Mapped[str] = mapped_column(String(40), default=now)
+    last_used: Mapped[str] = mapped_column(String(40), default=now)
+    enabled: Mapped[int] = mapped_column(default=1)
+
+
+class InAppNotification(Base):
+    __tablename__ = "in_app_notifications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    alert_id: Mapped[str] = mapped_column(String(100), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    message: Mapped[str] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(String(40), default="WARNING")
+    category: Mapped[str] = mapped_column(String(40), default="disaster")
+    location: Mapped[str] = mapped_column(String(100), default="")
+    source: Mapped[str] = mapped_column(String(100), default="IMD / NDMA Sachet")
+    is_read: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[str] = mapped_column(String(40), default=now)
+    expires_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
+class PushDevice(Base):
+    __tablename__ = "push_devices"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    platform: Mapped[str] = mapped_column(String(20), default="android")  # android, web, ios
+    device_token: Mapped[str] = mapped_column(Text, index=True)
+    device_name: Mapped[str] = mapped_column(String(100), default="Android Device")
+    enabled: Mapped[int] = mapped_column(default=1)
+    created_at: Mapped[str] = mapped_column(String(40), default=now)
+    updated_at: Mapped[str] = mapped_column(String(40), default=now)
+    last_seen: Mapped[str] = mapped_column(String(40), default=now)
+
+
+class PushDeliveryLog(Base):
+    __tablename__ = "push_delivery_logs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    alert_id: Mapped[str] = mapped_column(String(100), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("push_devices.id"), nullable=True)
+    platform: Mapped[str] = mapped_column(String(20), default="android")
+    status: Mapped[str] = mapped_column(String(20), default="SENT")  # QUEUED, SENT, FAILED, INVALID_TOKEN
+    sent_at: Mapped[str] = mapped_column(String(40), default=now)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 # ========================================================
 # WeatherGPT ML & Observational Time-Series Tables
 # ========================================================

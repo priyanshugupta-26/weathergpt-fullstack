@@ -370,12 +370,8 @@ class WeatherQueryEngine:
         return "\n".join("- " + str(e.get("description") or e.get("place") or e.get("name") or json.dumps(e, ensure_ascii=False)) for e in entries[:5])
 
     async def answer(self, request):
-        result = await self.prepare(request)
-        if "tool_context" not in result:
-            return result
-        ai = await ai_router.generate({"message": request.message, "language": result["query"]["language"], "data": result.pop("tool_context"), "fallback": result["message"]})
-        result.update(message=ai.text, mode=ai.provider, ai={"provider": ai.provider, "model": ai.model, "usage": ai.usage})
-        return result
+        from .orchestrator import weather_orchestrator
+        return await weather_orchestrator.answer(request)
 
 
 query_engine = WeatherQueryEngine()

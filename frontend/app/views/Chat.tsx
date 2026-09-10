@@ -1,36 +1,97 @@
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, Plus, ArrowUp, Mic, Square, MapPin, MessageSquare, Volume2 } from "lucide-react";
+import {
+  Sparkles,
+  Plus,
+  ArrowUp,
+  Mic,
+  Square,
+  MapPin,
+  MessageSquare,
+  Volume2,
+  CheckCircle2,
+  AlertTriangle,
+  Info,
+  ChevronDown,
+  ChevronUp,
+  CloudRain,
+  Sun,
+  Wind,
+  ShieldAlert,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useApp } from "@/lib/context";
 import { api, readLocal, writeLocal, number, type Row } from "@/lib/api";
 import { Heading } from "@/components/WeatherUI";
-import { getSpeechLocale, isRTL, getLanguageInfo, t } from "@/lib/i18n";
-type Message = { role: string; content: string; weather?: Row; mode?: string };
+import { getSpeechLocale, isRTL, getLanguageInfo } from "@/lib/i18n";
+
+export interface MetricItem {
+  label: string;
+  value: any;
+  unit: string;
+  trend?: string;
+}
+
+export interface SourceItem {
+  organization?: string;
+  dataset?: string;
+  timestamp?: string;
+  type?: string;
+  title?: string;
+}
+
+export interface StructuredAnswerData {
+  summary: string;
+  severity: "NORMAL" | "ADVISORY" | "WATCH" | "WARNING" | "SEVERE" | string;
+  key_points: string[];
+  timeline: string[];
+  actions: string[];
+  metrics: MetricItem[];
+  sources: SourceItem[];
+  technical_details?: string | null;
+  confidence?: number | null;
+}
+
+export interface Message {
+  role: "user" | "assistant";
+  content: string;
+  weather?: Row;
+  mode?: string;
+  structured?: StructuredAnswerData;
+  showTechnical?: boolean;
+}
+
 export default function Chat() {
   const { place, language, toast } = useApp();
   const [conversations, setConversations] = useState<Record<string, Message[]>>(() =>
-      readLocal("wg.chats", {}),
-    ),
-    [conversation, setConversation] = useState(() => readLocal("wg.activeChat", "default")),
-    [text, setText] = useState(""),
-    [busy, setBusy] = useState(false),
-    [listening, setListening] = useState(false),
-    [supported, setSupported] = useState(false);
-  const recognition = useRef<any>(null),
-    bottom = useRef<HTMLDivElement>(null);
+    readLocal("wg.chats", {}),
+  );
+  const [conversation, setConversation] = useState(() =>
+    readLocal("wg.activeChat", "default"),
+  );
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [chatMode, setChatMode] = useState<"standard" | "simple" | "technical">("standard");
+  const [listening, setListening] = useState(false);
+  const [supported, setSupported] = useState(false);
+
+  const recognition = useRef<any>(null);
+  const bottom = useRef<HTMLDivElement>(null);
   const messages = conversations[conversation] || [];
   const initial = useRef(false);
+
   useEffect(() => {
     setSupported(
       Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition),
     );
     return () => recognition.current?.abort();
   }, []);
+
   useEffect(() => {
     writeLocal("wg.chats", conversations);
     writeLocal("wg.activeChat", conversation);
     bottom.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [conversations, conversation]);
+
   useEffect(() => {
     const q = new URLSearchParams(location.search).get("q");
     if (q && !initial.current) {
@@ -38,29 +99,53 @@ export default function Chat() {
       initial.current = true;
     }
   }, []);
-  const send = async (message = text) => {
-    if (!message.trim() || busy) return;
+
+  const toggleTechnical = (index: number) => {
+    setConversations((prev) => {
+      const current = prev[conversation] || [];
+      const updated = current.map((m, i) =>
+        i === index ? { ...m, showTechnical: !m.showTechnical } : m,
+      );
+      return { ...prev, [conversation]: updated };
+    });
+  };
+
+  const send = async (message = text, modeOverride?: string) => {
+    const query = message.trim();
+    if (!query || busy) return;
     const id = conversation;
     setText("");
     setConversations((c) => ({
       ...c,
-      [id]: [...(c[id] || []), { role: "user", content: message }],
+      [id]: [...(c[id] || []), { role: "user", content: query }],
     }));
     setBusy(true);
+
     try {
       const result = await api("/api/chat", {
         method: "POST",
-        body: JSON.stringify({ ...place, message, language, conversation: id }),
+        body: JSON.stringify({
+          ...place,
+          message: query,
+          language,
+          conversation: id,
+          mode: modeOverride || chatMode,
+        }),
       });
+
+      const structured: StructuredAnswerData | undefined = result.structured;
+
       setConversations((c) => ({
         ...c,
         [id]: [
           ...(c[id] || []),
           {
             role: "assistant",
-            content: result.message,
+            content: result.message || structured?.summary || "No response generated.",
             weather: result.weather,
             mode: result.mode,
+            structured,
+            showTechnical: false,
           },
         ],
       }));
@@ -71,7 +156,7 @@ export default function Chat() {
           ...(c[id] || []),
           {
             role: "assistant",
-            content: `Unable to answer: ${(e as Error).message} Please try again.`,
+            content: `Unable to answer: ${(e as Error).message}. Please try again.`,
           },
         ],
       }));
@@ -79,6 +164,7 @@ export default function Chat() {
       setBusy(false);
     }
   };
+
   const speak = (content: string) => {
     if (!("speechSynthesis" in window)) {
       toast("Text-to-speech is not supported on this browser.");
@@ -90,7 +176,9 @@ export default function Chat() {
     const locale = getSpeechLocale(language);
     utterance.lang = locale;
     const voices = window.speechSynthesis.getVoices();
-    const matched = voices.find((v) => v.lang.replace("_", "-").toLowerCase().startsWith(locale.split("-")[0].toLowerCase()));
+    const matched = voices.find((v) =>
+      v.lang.replace("_", "-").toLowerCase().startsWith(locale.split("-")[0].toLowerCase()),
+    );
     if (matched) utterance.voice = matched;
     window.speechSynthesis.speak(utterance);
   };
@@ -134,12 +222,42 @@ export default function Chat() {
       toast("Voice recognition is not available for this language on this browser.");
     }
   };
+
+  const getSeverityClass = (sev = "NORMAL") => {
+    const s = sev.toUpperCase();
+    if (s === "SEVERE" || s === "EMERGENCY" || s === "RED") return "severe";
+    if (s === "WARNING" || s === "ORANGE") return "warning";
+    if (s === "ADVISORY" || s === "WATCH" || s === "YELLOW") return "advisory";
+    return "normal";
+  };
+
   return (
     <>
       <Heading
         title="Weather, in your words."
-        subtitle={`Grounded meteorological assistant for India. Active: ${getLanguageInfo(language).nativeName} (${getLanguageInfo(language).name}). No AI key required.`}
-      />
+        subtitle={`Grounded meteorological assistant for India. Active: ${getLanguageInfo(language).nativeName} (${getLanguageInfo(language).name}). No AI hallucinated weather.`}
+      >
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>
+            Mode:
+          </span>
+          {[
+            { id: "simple", label: "🌾 Simple" },
+            { id: "standard", label: "🌤 Standard" },
+            { id: "technical", label: "📊 Technical" },
+          ].map((m) => (
+            <button
+              key={m.id}
+              className={`button ${chatMode === m.id ? "primary" : "secondary"}`}
+              style={{ padding: "4px 10px", fontSize: 12 }}
+              onClick={() => setChatMode(m.id as any)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </Heading>
+
       <div className="chat-layout" dir={isRTL(language) ? "rtl" : "ltr"}>
         <aside className="card chat-history">
           <button
@@ -176,9 +294,10 @@ export default function Chat() {
               </button>
             ))}
           <small style={{ display: "block", marginTop: 20 }}>
-            Signed-in messages are also saved privately to your account.
+            Multi-turn conversation context is retained across queries.
           </small>
         </aside>
+
         <section className="card chat-main">
           <div className="card-head">
             <div className="button-row">
@@ -186,7 +305,10 @@ export default function Chat() {
                 <Sparkles size={19} />
               </span>
               <h2>WeatherGPT</h2>
-              <span className="badge neutral">DATA-GROUNDED</span>
+              <span className="badge neutral">TOOL GROUNDED</span>
+              <span className="badge cyan" style={{ textTransform: "uppercase" }}>
+                {chatMode}
+              </span>
             </div>
             <span
               className="muted"
@@ -196,23 +318,28 @@ export default function Chat() {
               {place.name}
             </span>
           </div>
+
           {!messages.length ? (
             <div className="chat-welcome">
               <span className="assistant-icon">
                 <Sparkles size={30} />
               </span>
               <h1>
-                {language === "hi" ? "आज मौसम के बारे में क्या जानना चाहेंगे?" : "What’s on your horizon?"}
+                {language === "hi"
+                  ? "आज मौसम के बारे में क्या जानना चाहेंगे?"
+                  : "What’s on your horizon?"}
               </h1>
               <p>
-                Ask about the forecast, plan around the rain, or make sense of changing conditions.
+                Ask free-form questions about rain, farm spraying, sea conditions, travel, or disaster warnings.
               </p>
               <div className="suggestions">
                 {[
-                  "Will it rain here tomorrow?",
-                  "What is the wind speed near Mumbai?",
-                  "Explain today’s weather in Hindi.",
-                  "Should farmers irrigate crops today?",
+                  "Should I spray pesticide tomorrow morning?",
+                  "Rain aa rahi hai to fertilizer kab dalu?",
+                  "Is the sea safe for a small fishing boat near Visakhapatnam tomorrow?",
+                  "Can I travel from Patna to Ranchi tomorrow morning?",
+                  "Compare today's wind with yesterday.",
+                  "Which part of the day has lowest rain risk?",
                 ].map((q) => (
                   <button key={q} onClick={() => send(q)}>
                     {q} ↗
@@ -224,12 +351,21 @@ export default function Chat() {
             <div className="messages" aria-live="polite">
               {messages.map((m, i) => (
                 <article key={i} className={`message ${m.role}`}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                    <small>{m.role === "user" ? "YOU" : "WEATHERGPT"}</small>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <small style={{ fontWeight: 700, letterSpacing: "0.06em", color: "var(--muted)" }}>
+                      {m.role === "user" ? "YOU" : "WEATHERGPT INTELLIGENCE"}
+                    </small>
                     {m.role === "assistant" && (
                       <button
                         type="button"
-                        onClick={() => speak(m.content)}
+                        onClick={() => speak(m.structured?.summary || m.content)}
                         style={{
                           background: "none",
                           border: "none",
@@ -242,30 +378,173 @@ export default function Chat() {
                         aria-label="Read answer aloud"
                         title="Read aloud"
                       >
-                        <Volume2 size={14} />
+                        <Volume2 size={15} />
                       </button>
                     )}
                   </div>
-                  <ReactMarkdown>{m.content}</ReactMarkdown>
+
+                  {m.role === "assistant" && m.structured ? (
+                    <div className="structured-answer-container">
+                      {/* 1. Quick Answer Card */}
+                      <div className={`quick-answer-card ${getSeverityClass(m.structured.severity)}`}>
+                        <div className="quick-answer-header">
+                          <span className="quick-answer-title">
+                            {m.structured.severity === "SEVERE" || m.structured.severity === "WARNING" ? (
+                              <AlertTriangle size={16} style={{ color: "#ef4444" }} />
+                            ) : (
+                              <Sun size={16} style={{ color: "#10b981" }} />
+                            )}
+                            QUICK ANSWER
+                          </span>
+                          <span className={`badge ${getSeverityClass(m.structured.severity)}`}>
+                            {m.structured.severity}
+                          </span>
+                        </div>
+                        <p className="quick-answer-summary">{m.structured.summary}</p>
+
+                        {/* Metric chips */}
+                        {m.structured.metrics && m.structured.metrics.length > 0 && (
+                          <div className="metric-chips-row">
+                            {m.structured.metrics.map((mc, idx) => (
+                              <span key={idx} className="metric-chip">
+                                <span>{mc.label}:</span>
+                                <span className="chip-val">
+                                  {mc.value} {mc.unit}
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 2. Key Points */}
+                      {m.structured.key_points && m.structured.key_points.length > 0 && (
+                        <div className="structured-section">
+                          <span className="section-label">KEY POINTS</span>
+                          <ul className="key-points-list">
+                            {m.structured.key_points.map((pt, idx) => (
+                              <li key={idx}>{pt}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* 3. What You Should Do */}
+                      {m.structured.actions && m.structured.actions.length > 0 && (
+                        <div className="structured-section">
+                          <span className="section-label">WHAT YOU SHOULD DO</span>
+                          <div className="actions-checklist">
+                            {m.structured.actions.map((act, idx) => {
+                              const isWarning =
+                                act.toLowerCase().includes("avoid") ||
+                                act.toLowerCase().includes("warn") ||
+                                act.toLowerCase().includes("alert") ||
+                                act.toLowerCase().includes("danger") ||
+                                act.toLowerCase().includes("caution") ||
+                                act.startsWith("⚠");
+                              return (
+                                <div
+                                  key={idx}
+                                  className={`action-item ${isWarning ? "warning-action" : ""}`}
+                                >
+                                  {isWarning ? (
+                                    <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 2, color: "#f59e0b" }} />
+                                  ) : (
+                                    <CheckCircle2 size={15} style={{ flexShrink: 0, marginTop: 2, color: "#10b981" }} />
+                                  )}
+                                  <span>{act.replace(/^[✓⚠•\s]+/, "")}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 4. Timeline Strip */}
+                      {m.structured.timeline && m.structured.timeline.length > 0 && (
+                        <div className="structured-section">
+                          <span className="section-label">TIMELINE</span>
+                          <div className="timeline-strip">
+                            {m.structured.timeline.map((slot, idx) => {
+                              const parts = slot.split(":");
+                              const timeStr = parts.length > 1 ? parts[0] : `Period ${idx + 1}`;
+                              const desc = parts.length > 1 ? parts.slice(1).join(":") : slot;
+                              return (
+                                <div key={idx} className="timeline-card">
+                                  <div className="timeline-time">{timeStr}</div>
+                                  <div className="timeline-cond">{desc.trim()}</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 5. Sources Bar */}
+                      {m.structured.sources && m.structured.sources.length > 0 && (
+                        <div className="sources-bar">
+                          <span style={{ fontWeight: 700, color: "var(--muted)" }}>SOURCE:</span>
+                          {m.structured.sources.map((s, idx) => (
+                            <span key={idx} className="source-chip">
+                              <Info size={11} />
+                              {s.organization || s.type || "WeatherGPT Fact"}{" "}
+                              {s.dataset ? `(${s.dataset})` : ""}{" "}
+                              {s.timestamp ? `· ${s.timestamp.slice(0, 10)}` : ""}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* 6. Explain More Button */}
+                      {(m.structured.technical_details || chatMode === "technical") && (
+                        <div style={{ marginTop: 6 }}>
+                          <button
+                            type="button"
+                            className="explain-more-btn"
+                            onClick={() => toggleTechnical(i)}
+                          >
+                            {m.showTechnical ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            {m.showTechnical ? "Hide Technical Details" : "Explain More (Technical)"}
+                          </button>
+
+                          {m.showTechnical && (
+                            <div className="technical-drawer" style={{ marginTop: 8 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--cyan)", marginBottom: 6 }}>
+                                METEOROLOGICAL & MODEL RATIONALE
+                              </div>
+                              <ReactMarkdown>
+                                {m.structured.technical_details || "No deeper technical metrics available."}
+                              </ReactMarkdown>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <ReactMarkdown>{m.content}</ReactMarkdown>
+                  )}
+
                   {m.weather?.status === "live" && (
-                    <div className="list-item" style={{ marginTop: 12, color: "var(--cyan)" }}>
-                      {number(m.weather.current.temperature_2m)} °C ·{" "}
-                      {number(m.weather.current.wind_speed_10m)} km/h · {m.weather.source}
-                      <small style={{ display: "block" }}>
+                    <div className="list-item" style={{ marginTop: 12, color: "var(--cyan)", fontSize: 12 }}>
+                      {number(m.weather.current?.temperature_2m)} °C ·{" "}
+                      {number(m.weather.current?.wind_speed_10m)} km/h · {m.weather.source}
+                      <small style={{ display: "block", color: "var(--muted)" }}>
                         {m.weather.timestamp} · {m.mode}
                       </small>
                     </div>
                   )}
                 </article>
               ))}
+
               {busy && (
                 <article className="message" role="status">
-                  <Sparkles size={16} /> Checking weather data…
+                  <Sparkles size={16} className="spin" /> Orchestrating real meteorological data & RAG…
                 </article>
               )}
               <div ref={bottom} />
             </div>
           )}
+
           <form
             className="chat-input"
             onSubmit={(e) => {
@@ -275,7 +554,7 @@ export default function Chat() {
           >
             <textarea
               aria-label="Message WeatherGPT"
-              placeholder={listening ? "Listening…" : "Ask anything about the weather…"}
+              placeholder={listening ? "Listening…" : "Ask anything about weather, farming, marine, travel..."}
               value={text}
               rows={2}
               maxLength={2000}
@@ -305,8 +584,8 @@ export default function Chat() {
               <ArrowUp size={18} />
             </button>
           </form>
-          <small style={{ textAlign: "center", marginTop: 10 }}>
-            Weather can change. Check official warnings before safety-critical decisions.
+          <small style={{ textAlign: "center", marginTop: 10, color: "var(--muted)", fontSize: 11 }}>
+            Weather can change rapidly. Check official IMD/NDMA CAP alerts before safety-critical decisions.
           </small>
         </section>
       </div>

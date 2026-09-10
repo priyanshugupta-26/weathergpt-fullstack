@@ -249,24 +249,35 @@ class MLFeatureBuilder:
         lag_3 = past_lags.get("lag_3h", {})
         lag_24 = past_lags.get("lag_24h", {})
 
-        p_3h_ago = lag_3.get("surface_pressure", lag_3.get("pressure", press + 0.2))
-        pressure_tendency_3h = round(press - float(p_3h_ago), 2)
+        def _sf(d, k1, k2=None, default=0.0):
+            val = d.get(k1) if isinstance(d, dict) else None
+            if val is None and k2 and isinstance(d, dict):
+                val = d.get(k2)
+            if val is None:
+                val = default
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return float(default)
 
-        temp_lag_1 = float(lag_1.get("temperature", lag_1.get("temperature_2m", current_obs.get("temp_lag_1", temp - 0.3))))
-        hum_lag_1 = float(lag_1.get("humidity", lag_1.get("relative_humidity_2m", current_obs.get("humidity_lag_1", rh + 2.0))))
-        rad_lag_1 = float(lag_1.get("shortwave_radiation", current_obs.get("radiation_lag_1", max(0.0, shortwave - 30.0))))
+        p_3h_ago = _sf(lag_3, "surface_pressure", "pressure", press + 0.2)
+        pressure_tendency_3h = round(press - p_3h_ago, 2)
 
-        temp_lag_2 = float(lag_2.get("temperature", lag_2.get("temperature_2m", current_obs.get("temp_lag_2", temp - 0.7))))
-        hum_lag_2 = float(lag_2.get("humidity", lag_2.get("relative_humidity_2m", current_obs.get("humidity_lag_2", rh + 4.0))))
-        rad_lag_2 = float(lag_2.get("shortwave_radiation", current_obs.get("radiation_lag_2", max(0.0, shortwave - 60.0))))
+        temp_lag_1 = _sf(lag_1, "temperature", "temperature_2m", current_obs.get("temp_lag_1") or (temp - 0.3))
+        hum_lag_1 = _sf(lag_1, "humidity", "relative_humidity_2m", current_obs.get("humidity_lag_1") or (rh + 2.0))
+        rad_lag_1 = _sf(lag_1, "shortwave_radiation", None, current_obs.get("radiation_lag_1") or max(0.0, shortwave - 30.0))
 
-        temp_lag_3 = float(lag_3.get("temperature", lag_3.get("temperature_2m", current_obs.get("temp_lag_3", temp - 1.2))))
-        hum_lag_3 = float(lag_3.get("humidity", lag_3.get("relative_humidity_2m", current_obs.get("humidity_lag_3", rh + 6.0))))
-        rad_lag_3 = float(lag_3.get("shortwave_radiation", current_obs.get("radiation_lag_3", max(0.0, shortwave - 90.0))))
+        temp_lag_2 = _sf(lag_2, "temperature", "temperature_2m", current_obs.get("temp_lag_2") or (temp - 0.7))
+        hum_lag_2 = _sf(lag_2, "humidity", "relative_humidity_2m", current_obs.get("humidity_lag_2") or (rh + 4.0))
+        rad_lag_2 = _sf(lag_2, "shortwave_radiation", None, current_obs.get("radiation_lag_2") or max(0.0, shortwave - 60.0))
 
-        temp_lag_24 = float(lag_24.get("temperature", lag_24.get("temperature_2m", current_obs.get("temp_lag_24", temp - 0.5))))
-        hum_lag_24 = float(lag_24.get("humidity", lag_24.get("relative_humidity_2m", current_obs.get("humidity_lag_24", rh - 1.0))))
-        rad_lag_24 = float(lag_24.get("shortwave_radiation", current_obs.get("radiation_lag_24", shortwave)))
+        temp_lag_3 = _sf(lag_3, "temperature", "temperature_2m", current_obs.get("temp_lag_3") or (temp - 1.2))
+        hum_lag_3 = _sf(lag_3, "humidity", "relative_humidity_2m", current_obs.get("humidity_lag_3") or (rh + 6.0))
+        rad_lag_3 = _sf(lag_3, "shortwave_radiation", None, current_obs.get("radiation_lag_3") or max(0.0, shortwave - 90.0))
+
+        temp_lag_24 = _sf(lag_24, "temperature", "temperature_2m", current_obs.get("temp_lag_24") or (temp - 0.5))
+        hum_lag_24 = _sf(lag_24, "humidity", "relative_humidity_2m", current_obs.get("humidity_lag_24") or (rh - 1.0))
+        rad_lag_24 = _sf(lag_24, "shortwave_radiation", None, current_obs.get("radiation_lag_24") or shortwave)
 
         features_pool = {
             "latitude": lat,

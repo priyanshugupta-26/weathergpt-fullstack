@@ -33,7 +33,7 @@ import {
   Award,
 } from "lucide-react";
 import { Heading } from "@/components/WeatherUI";
-import { api, type Row } from "@/lib/api";
+import { api, getWsBaseUrl, type Row } from "@/lib/api";
 import { useApp } from "@/lib/context";
 
 export default function DataLab() {
@@ -170,8 +170,7 @@ export default function DataLab() {
 
   // 4. WebSocket Live Stream Connection
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/data-stream`;
+    const wsUrl = `${getWsBaseUrl()}/ws/data-stream`;
 
     let ws: WebSocket;
     let fallbackTimer: NodeJS.Timeout;

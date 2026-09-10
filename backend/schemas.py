@@ -1,5 +1,5 @@
 import math
-from typing import Literal
+from typing import Literal, Any
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -47,10 +47,45 @@ class LoginInput(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class TimelineItem(BaseModel):
+    time: str
+    condition: str
+    detail: str = ""
+
+
+class MetricChip(BaseModel):
+    label: str
+    value: Any
+    unit: str = ""
+    icon: str = "thermometer"
+
+
+class SourceCitation(BaseModel):
+    name: str
+    url: str = ""
+    time: str = ""
+
+
+class StructuredAnswer(BaseModel):
+    summary: str
+    severity: Literal["normal", "advisory", "watch", "warning", "severe"] = "normal"
+    key_points: list[str] = Field(default_factory=list)
+    timeline: list[TimelineItem] = Field(default_factory=list)
+    actions: list[str] = Field(default_factory=list)
+    metrics: list[MetricChip] = Field(default_factory=list)
+    sources: list[SourceCitation] = Field(default_factory=list)
+    technical_details: str | None = None
+    confidence: float | None = None
+    sector: str = "general"
+
+
 class ChatRequest(Coordinates):
     message: str = Field(min_length=1, max_length=2000)
     language: str = Field("en", max_length=20)
-    conversation: str = Field("default", max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+    conversation: str | None = Field(default=None, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+    sector: str | None = Field(default=None, max_length=30)
+    mode: Literal["simple", "standard", "technical"] = "standard"
+    explain_more: bool = False
 
 
 class PredictionRequest(BaseModel):

@@ -61,6 +61,9 @@ export default function Register() {
       });
 
       setUser(u);
+      if (u.token) {
+        localStorage.setItem("wg.token", u.token);
+      }
       toast(t("onboarding.title", language) || "Account created successfully");
       navigate("/onboarding");
     } catch (err: any) {

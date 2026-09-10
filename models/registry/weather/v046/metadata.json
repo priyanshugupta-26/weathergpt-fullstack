@@ -1,0 +1,67 @@
+{
+  "model_name": "weathergpt_ml",
+  "version": "v046",
+  "algorithm": "HistGradientBoosting",
+  "created_at": "2026-09-10T08:12:10.957419+00:00",
+  "training_rows": 329,
+  "validation_rows": 83,
+  "training_start": "2026-08-30T18:30:00+00:00",
+  "training_end": "2026-09-10T04:30:00+00:00",
+  "metrics": {
+    "per_target": {
+      "temperature_2m": {
+        "mae": 0.529,
+        "rmse": 0.663,
+        "r2": 0.895,
+        "unit": "celsius"
+      },
+      "relative_humidity_2m": {
+        "mae": 1.976,
+        "rmse": 2.611,
+        "r2": 0.946,
+        "unit": "percent"
+      },
+      "surface_pressure": {
+        "mae": 4.393,
+        "rmse": 6.031,
+        "r2": -22.41,
+        "unit": "hPa"
+      },
+      "wind_speed_10m": {
+        "mae": 1.635,
+        "rmse": 2.163,
+        "r2": 0.325,
+        "unit": "km/h"
+      },
+      "wind_direction_10m": {
+        "mae": 62.893,
+        "rmse": 108.85,
+        "r2": 0.293,
+        "unit": "degrees"
+      },
+      "precipitation": {
+        "mae": 0.491,
+        "rmse": 0.91,
+        "r2": 0.328,
+        "unit": "mm"
+      },
+      "cloud_cover": {
+        "mae": 12.697,
+        "rmse": 17.158,
+        "r2": 0.798,
+        "unit": "percent"
+      },
+      "dew_point_2m": {
+        "mae": 0.372,
+        "rmse": 0.496,
+        "r2": 0.576,
+        "unit": "celsius"
+      }
+    },
+    "aggregate": {
+      "mean_mae": 10.623,
+      "mean_rmse": 17.36,
+      "val_samples": 83
+    }
+  }
+}

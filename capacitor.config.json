@@ -1,0 +1,17 @@
+{
+  "appId": "com.weathergpt.app",
+  "appName": "WeatherGPT",
+  "webDir": "frontend/dist/client",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  }
+}

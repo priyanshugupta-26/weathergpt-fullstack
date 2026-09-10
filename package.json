@@ -1,0 +1,18 @@
+{
+  "name": "weathergpt",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WeatherGPT - Indigenous AI Weather Intelligence for India",
+  "scripts": {
+    "build:web": "npm --prefix frontend run build",
+    "cap:sync": "cap sync android",
+    "cap:build": "cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.1",
+    "@capacitor/app": "8.1.1",
+    "@capacitor/cli": "8.5.1",
+    "@capacitor/core": "8.5.1",
+    "@capacitor/push-notifications": "8.1.2"
+  }
+}

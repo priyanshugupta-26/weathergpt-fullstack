@@ -34,6 +34,9 @@ export default function Login() {
       });
 
       setUser(u);
+      if (u.token) {
+        localStorage.setItem("wg.token", u.token);
+      }
       if (u.preferred_language) {
         setLanguage(u.preferred_language);
       }
