@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import secrets
 import time
 from collections import defaultdict, deque
@@ -19,7 +20,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy import select, func, delete, text
@@ -33,6 +34,7 @@ from .database import (
     Location,
     ChatMessage,
     save_record,
+    now,
 )
 from .auth import (
     hasher,
@@ -46,6 +48,8 @@ from .schemas import (
     Coordinates,
     SavedLocationInput,
     Credentials,
+    RegisterInput,
+    LoginInput,
     ChatRequest,
     PredictionRequest,
     ProfileUpdate,
@@ -701,26 +705,101 @@ async def providers():
     }
 
 
+def normalize_phone(phone: str | None) -> str | None:
+    if not phone:
+        return None
+    cleaned = re.sub(r"[^\d+]", "", str(phone)).strip()
+    if cleaned.startswith("+91"):
+        cleaned = cleaned[3:]
+    elif cleaned.startswith("91") and len(cleaned) == 12:
+        cleaned = cleaned[2:]
+    elif cleaned.startswith("0") and len(cleaned) == 11:
+        cleaned = cleaned[1:]
+    return cleaned if cleaned else None
+
+
 @app.post("/api/auth/register", status_code=201)
-async def register(payload: Credentials):
+async def register(payload: RegisterInput, response: Response):
+    if payload.confirm_password is not None and payload.password != payload.confirm_password:
+        raise HTTPException(400, "Passwords do not match")
+    if len(payload.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+
+    clean_email = payload.email.strip().lower()
+    full_name = (payload.full_name or payload.name or "Explorer").strip()
+    norm_mobile = normalize_phone(payload.mobile or payload.mobile_number)
+
     with Session.begin() as db:
+        existing = db.scalar(select(User).where(User.email == clean_email))
+        if existing:
+            raise HTTPException(409, "An account with this email already exists.")
+
+        pref_loc = None
+        if payload.latitude is not None and payload.longitude is not None:
+            pref_loc = {
+                "name": payload.city or payload.district or "Patna",
+                "latitude": payload.latitude,
+                "longitude": payload.longitude,
+                "country": "India",
+            }
+
         user = User(
-            email=payload.email.lower(),
-            name=payload.name,
+            email=clean_email,
+            name=full_name,
             password_hash=hasher.hash(payload.password),
+            mobile=norm_mobile,
+            preferred_language=payload.preferred_language or "en",
+            state=payload.state or "",
+            district=payload.district or "",
+            city=payload.city or "",
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            preferences=json.dumps({
+                "language": payload.preferred_language or "en",
+                "default_location": pref_loc,
+            }),
+            last_login=now(),
         )
         db.add(user)
         try:
             db.flush()
         except IntegrityError:
-            raise HTTPException(409, "Email is already registered")
+            raise HTTPException(409, "An account with this email already exists.")
+
+        # Automatic login upon registration
+        token = secrets.token_urlsafe(32)
+        db.add(
+            AuthSession(
+                token_hash=token_hash(token),
+                user_id=user.id,
+                expires=time.time() + settings.session_days * 86400,
+            )
+        )
+        response.set_cookie(
+            "wg_session",
+            token,
+            httponly=True,
+            secure=settings.secure_cookies,
+            samesite="lax",
+            max_age=settings.session_days * 86400,
+        )
         return public_user(user)
 
 
 @app.post("/api/auth/login")
-async def login(payload: Credentials, response: Response):
+async def login(payload: LoginInput, response: Response):
+    identifier = (payload.email or payload.mobile or "").strip()
+    if not identifier:
+        raise HTTPException(400, "Email or mobile number is required")
+    norm_phone = normalize_phone(identifier)
+
     with Session.begin() as db:
-        user = db.scalar(select(User).where(User.email == payload.email.lower()))
+        query = select(User).where(User.email == identifier.lower())
+        if norm_phone:
+            query = select(User).where(
+                (User.email == identifier.lower()) | (User.mobile == norm_phone)
+            )
+        user = db.scalar(query)
         try:
             valid = hasher.verify(
                 user.password_hash if user else DUMMY_HASH, payload.password
@@ -729,6 +808,7 @@ async def login(payload: Credentials, response: Response):
             valid = False
         if not user or not valid:
             raise HTTPException(401, "Invalid email or password")
+        user.last_login = now()
         token = secrets.token_urlsafe(32)
         db.add(
             AuthSession(
@@ -753,13 +833,14 @@ DUMMY_HASH = hasher.hash(secrets.token_urlsafe(24))
 
 @app.post("/api/auth/logout")
 async def logout(request: Request, response: Response):
-    with Session.begin() as db:
-        db.execute(
-            delete(AuthSession).where(
-                AuthSession.token_hash
-                == token_hash(request.cookies.get("wg_session", ""))
+    token = request.cookies.get("wg_session", "")
+    if token:
+        with Session.begin() as db:
+            db.execute(
+                delete(AuthSession).where(
+                    AuthSession.token_hash == token_hash(token)
+                )
             )
-        )
     response.delete_cookie("wg_session")
     return {"status": "signed out"}
 
@@ -773,9 +854,49 @@ async def profile(user=Depends(require_user)):
 async def update_profile(payload: ProfileUpdate, user=Depends(require_user)):
     with Session.begin() as db:
         stored = db.get(User, user.id)
-        stored.name = payload.name
-        stored.preferences = json.dumps(payload.model_dump(exclude={"name"}))
+        if not stored:
+            raise HTTPException(404, "User not found")
+        if payload.name is not None:
+            stored.name = payload.name
+        if payload.mobile is not None:
+            stored.mobile = normalize_phone(payload.mobile)
+        lang = (
+            payload.preferred_language
+            or payload.language
+            or (payload.preferences.get("language") if payload.preferences else None)
+            or stored.preferred_language
+        )
+        if lang:
+            stored.preferred_language = lang
+        if payload.state is not None:
+            stored.state = payload.state
+        if payload.district is not None:
+            stored.district = payload.district
+        if payload.city is not None:
+            stored.city = payload.city
+        if payload.default_location:
+            stored.latitude = payload.default_location.latitude
+            stored.longitude = payload.default_location.longitude
+        stored.updated_at = now()
+
+        prefs = {}
+        if stored.preferences:
+            try:
+                prefs = json.loads(stored.preferences)
+            except Exception:
+                prefs = {}
+        dumped = payload.model_dump(
+            exclude={"name", "mobile", "state", "district", "city", "preferences"},
+            exclude_none=True,
+        )
+        prefs.update(dumped)
+        if payload.preferences:
+            prefs.update(payload.preferences)
+        if lang:
+            prefs["language"] = lang
+        stored.preferences = json.dumps(prefs)
         return public_user(stored)
+
 
 
 @app.get("/api/locations/saved")
@@ -855,14 +976,92 @@ if static.exists():
     app.mount("/assets", StaticFiles(directory=static / "assets"), name="assets")
 
 
+PROTECTED_PORTAL_ROUTES = {
+    "/dashboard",
+    "/globe",
+    "/forecast",
+    "/chat",
+    "/alerts",
+    "/climate",
+    "/agriculture",
+    "/aviation",
+    "/marine",
+    "/city-monitor",
+    "/model-lab",
+    "/data-lab",
+    "/settings",
+    "/profile",
+    "/saved-locations",
+    "/notifications",
+    "/system-status",
+}
+
+
 @app.get("/{path:path}", include_in_schema=False)
-async def frontend(path: str):
+async def frontend(path: str, request: Request):
     if path.startswith(("api/", "ws/")):
         raise HTTPException(404, "Not found")
+
     candidate = (static / path).resolve()
     if candidate.is_relative_to(static.resolve()) and candidate.is_file():
         return FileResponse(candidate)
+
     index = static / "index.html"
+    norm_path = "/" + path.strip("/")
+    user = optional_user(request)
+
+    # 1. Root route
+    if norm_path == "/":
+        if not user:
+            return RedirectResponse(url="/login", status_code=302)
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    # 2. Registration and Login routes
+    if norm_path in ("/register", "/login"):
+        if user:
+            return RedirectResponse(url="/dashboard", status_code=302)
+        if index.exists():
+            return FileResponse(index)
+        return JSONResponse({"message": "WeatherGPT Authentication is ready."})
+
+    # 3. Onboarding route
+    if norm_path == "/onboarding":
+        if not user:
+            return RedirectResponse(url="/login", status_code=302)
+        if index.exists():
+            return FileResponse(index)
+        return JSONResponse({"message": "WeatherGPT Onboarding is ready."})
+
+    # 4. Admin & Setup routes
+    if norm_path == "/setup":
+        if not user:
+            return RedirectResponse(url="/login", status_code=302)
+        if user.role != "admin":
+            raise HTTPException(403, "Administrator access required")
+        if index.exists():
+            return FileResponse(index)
+        return JSONResponse({"message": "WeatherGPT Setup is ready."})
+
+    if norm_path == "/admin":
+        if not user:
+            return RedirectResponse(url="/login", status_code=302)
+        if user.role != "admin":
+            raise HTTPException(403, "Administrator access required")
+        if index.exists():
+            return FileResponse(index)
+        return JSONResponse({"message": "WeatherGPT Admin is ready."})
+
+    # 5. Protected portal routes
+    if norm_path in PROTECTED_PORTAL_ROUTES or any(norm_path.startswith(p + "/") for p in PROTECTED_PORTAL_ROUTES):
+        if not user:
+            return RedirectResponse(url="/login", status_code=302)
+        if index.exists():
+            return FileResponse(index)
+        return JSONResponse({"message": "WeatherGPT Portal is ready."})
+
+    # 6. Fallback
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
     if index.exists():
         return FileResponse(index)
     return JSONResponse(

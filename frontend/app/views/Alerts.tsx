@@ -3,8 +3,9 @@ import { ShieldAlert, ShieldCheck, Bell, ArrowUpRight } from "lucide-react";
 import { useApp } from "@/lib/context";
 import { Heading, Empty } from "@/components/WeatherUI";
 import { api, type Row } from "@/lib/api";
+import { t, getLanguageInfo } from "@/lib/i18n";
 export default function Alerts() {
-  const { alerts, place, weather, navigate, setPlace } = useApp();
+  const { alerts, place, weather, navigate, setPlace, language } = useApp();
   const [filter, setFilter] = useState("All"),
     [quakes, setQuakes] = useState<Row>({ events: [] });
   useEffect(() => {
@@ -97,7 +98,24 @@ export default function Alerts() {
             <p>
               {a.location} · {a.timestamp}
             </p>
-            <p>{a.recommendation}</p>
+            {a.original_text || a.data_source?.toLowerCase().includes("imd") ? (
+              <div style={{ margin: "10px 0", padding: "10px 14px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid var(--line)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", letterSpacing: "0.05em", marginBottom: 4 }}>
+                  {t("alerts.imdOriginal", language) || "IMD ORIGINAL"}
+                </div>
+                <div style={{ fontSize: 13, color: "var(--text)", marginBottom: 8 }}>
+                  {a.original_text || a.description}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--cyan)", letterSpacing: "0.05em", marginBottom: 4 }}>
+                  {t("alerts.weathergptTranslation", language) || "WEATHERGPT TRANSLATION"} — {getLanguageInfo(language).name.toUpperCase()}
+                </div>
+                <div style={{ fontSize: 13, color: "var(--muted)" }}>
+                  {a.recommendation || a.description}
+                </div>
+              </div>
+            ) : (
+              <p>{a.recommendation}</p>
+            )}
             <small>
               {a.data_source} · {a.model_source} · Expires{" "}
               {new Date(a.expires).toLocaleTimeString()}

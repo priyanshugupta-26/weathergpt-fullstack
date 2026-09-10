@@ -19,6 +19,7 @@ import {
   Cpu,
   Database,
   Key,
+  Globe,
 } from "lucide-react";
 import {
   Sidebar,
@@ -40,6 +41,7 @@ import {
   type Weather,
   type Row,
 } from "@/lib/api";
+import { LANGUAGES, t, isRTL, getLanguageInfo } from "@/lib/i18n";
 const Home = lazy(() => import("./views/Home"));
 const Forecast = lazy(() => import("./views/Forecast"));
 const GlobePage = lazy(() => import("./views/GlobePage"));
@@ -54,33 +56,36 @@ const CityMonitor = lazy(() => import("./views/CityMonitor"));
 const ModelLab = lazy(() => import("./views/ModelLab"));
 const DataLab = lazy(() => import("./views/DataLab"));
 const Setup = lazy(() => import("./views/Setup"));
+const Register = lazy(() => import("./views/Register"));
+const Login = lazy(() => import("./views/Login"));
+const Onboarding = lazy(() => import("./views/Onboarding"));
 const defaultPlace = { name: "Patna", latitude: 25.5941, longitude: 85.1376, country: "India" };
 const nav = [
-  ["/", "Overview", LayoutDashboard],
-  ["/globe", "Live globe", Globe2],
-  ["/forecast", "Forecast", CloudSun],
-  ["/chat", "WeatherGPT", Sparkles],
-  ["/alerts", "Alert center", ShieldAlert],
-  ["/climate", "Climate analytics", ChartNoAxesCombined],
-  ["/agriculture", "Agriculture", Leaf],
-  ["/aviation", "Aviation", Plane],
-  ["/marine", "Marine", Waves],
-  ["/city-monitor", "Smart city", Building2],
-  ["/data-lab", "Data & Learning Lab", Database],
-  ["/model-lab", "Model lab", Cpu],
-  ["/dashboard", "My dashboard", LayoutDashboard],
+  ["/dashboard", "My dashboard", LayoutDashboard, "nav.dashboard"],
+  ["/globe", "Live globe", Globe2, "nav.globe"],
+  ["/forecast", "Forecast", CloudSun, "nav.forecast"],
+  ["/chat", "WeatherGPT", Sparkles, "nav.chat"],
+  ["/alerts", "Alert center", ShieldAlert, "nav.alerts"],
+  ["/climate", "Climate analytics", ChartNoAxesCombined, "nav.climate"],
+  ["/agriculture", "Agriculture", Leaf, "nav.agriculture"],
+  ["/aviation", "Aviation", Plane, "nav.aviation"],
+  ["/marine", "Marine", Waves, "nav.marine"],
+  ["/city-monitor", "Smart city", Building2, "nav.cityMonitor"],
+  ["/data-lab", "Data & Learning Lab", Database, "nav.dataLab"],
+  ["/model-lab", "Model lab", Cpu, "nav.modelLab"],
 ] as const;
-function Nav({ route, navigate }: { route: string; navigate: (s: string) => void }) {
+
+function Nav({ route, navigate, language }: { route: string; navigate: (s: string) => void; language: string }) {
   const { setOpenMobile } = useSidebar();
   return (
     <>
       <SidebarContent>
         <a
-          href="/"
+          href="/dashboard"
           className="brand"
           onClick={(e) => {
             e.preventDefault();
-            navigate("/");
+            navigate("/dashboard");
           }}
         >
           <span className="brand-mark">
@@ -89,9 +94,9 @@ function Nav({ route, navigate }: { route: string; navigate: (s: string) => void
           WeatherGPT<small>BETA</small>
         </a>
         <nav className="nav-group">
-          {nav.map(([href, label, Icon], i) => (
+          {nav.map(([href, label, Icon, navKey], i) => (
             <div key={href}>
-              {[0, 5, 12].includes(i) && (
+              {[0, 5, 10].includes(i) && (
                 <span
                   className="eyebrow"
                   style={{ display: "block", padding: "15px 12px 8px", fontSize: 10 }}
@@ -109,7 +114,7 @@ function Nav({ route, navigate }: { route: string; navigate: (s: string) => void
                 }}
               >
                 <Icon size={18} />
-                {label}
+                {t(navKey, language) || label}
               </a>
             </div>
           ))}
@@ -127,7 +132,7 @@ function Nav({ route, navigate }: { route: string; navigate: (s: string) => void
             }}
           >
             <Key size={18} />
-            API setup
+            {t("nav.apiSetup", language) || "API setup"}
           </a>
           <a
             href="/settings"
@@ -139,7 +144,7 @@ function Nav({ route, navigate }: { route: string; navigate: (s: string) => void
             }}
           >
             <Settings size={18} />
-            Settings
+            {t("nav.settings", language) || "Settings"}
           </a>
           <a
             href="/admin"
@@ -151,17 +156,18 @@ function Nav({ route, navigate }: { route: string; navigate: (s: string) => void
             }}
           >
             <Activity size={18} />
-            System status
+            {t("nav.systemStatus", language) || "System status"}
           </a>
         </nav>
         <div className="provider-indicator" style={{ padding: "4px 24px 24px" }}>
           <span className="dot" />
-          Weather intelligence, connected
+          {t("brand.tagline", language) || "Weather intelligence, connected"}
         </div>
       </SidebarFooter>
     </>
   );
 }
+
 export default function App() {
   const [route, setRoute] = useState(location.pathname),
     [place, setPlaceState] = useState<Place>(() => readLocal("wg.place", defaultPlace)),
@@ -171,6 +177,7 @@ export default function App() {
     [tick, setTick] = useState(0),
     [alerts, setAlerts] = useState<Row[]>([]),
     [user, setUser] = useState<Row | null>(null),
+    [authChecked, setAuthChecked] = useState(false),
     [language, setLanguage] = useState(() => readLocal("wg.language", "en")),
     [theme, setTheme] = useState(() => readLocal("wg.theme", "dark")),
     [notifications, setNotifications] = useState<Record<string, boolean>>(() =>
@@ -220,6 +227,7 @@ export default function App() {
   useEffect(() => {
     writeLocal("wg.language", language);
     document.documentElement.lang = language;
+    document.documentElement.dir = isRTL(language) ? "rtl" : "ltr";
   }, [language]);
   useEffect(() => {
     writeLocal("wg.theme", theme);
@@ -237,11 +245,27 @@ export default function App() {
     writeLocal("wg.notifications", notifications);
   }, [notifications]);
   useEffect(() => {
-    api("/api/profile")
-      .then(setUser)
-      .catch(() => {});
+    api<Row>("/api/profile")
+      .then((u) => {
+        setUser(u);
+        setAuthChecked(true);
+      })
+      .catch(() => {
+        setUser(null);
+        setAuthChecked(true);
+      });
   }, []);
   useEffect(() => {
+    if (!authChecked) return;
+    const isAuthRoute = route === "/register" || route === "/login" || route === "/onboarding";
+    if (!user && !isAuthRoute) {
+      navigate("/login");
+    } else if (user && (route === "/register" || route === "/login" || route === "/")) {
+      navigate("/dashboard");
+    }
+  }, [authChecked, user, route, navigate]);
+  useEffect(() => {
+    if (!user) return;
     const controller = new AbortController();
     setLoading(true);
     setError("");
@@ -268,12 +292,13 @@ export default function App() {
       .then((d) => setAlerts(d.alerts))
       .catch(() => {});
     return () => controller.abort();
-  }, [place, tick, forecastSource]);
+  }, [user, place, tick, forecastSource]);
   useEffect(() => {
     const timer = setInterval(() => setTick((t) => t + 1), 600000);
     return () => clearInterval(timer);
   }, []);
   useEffect(() => {
+    if (!user) return;
     let socket: WebSocket,
       timer: ReturnType<typeof setTimeout>,
       stopped = false,
@@ -401,10 +426,85 @@ export default function App() {
     notifications,
     setNotifications,
   };
+  if (!authChecked) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#080c14",
+          color: "#f8fafc",
+          fontFamily: "Inter, sans-serif",
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+          <CloudSun size={38} style={{ color: "#38bdf8" }} />
+          <span style={{ fontSize: 13, letterSpacing: "0.08em", textTransform: "uppercase", color: "#94a3b8" }}>
+            WeatherGPT
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (route === "/register") {
+    return (
+      <Context.Provider value={ctx}>
+        <Suspense fallback={<div className="loading" aria-label="Loading..." />}>
+          <Register />
+        </Suspense>
+        {toastText && <div className="toast" role="status">{toastText}</div>}
+      </Context.Provider>
+    );
+  }
+  if (route === "/login") {
+    return (
+      <Context.Provider value={ctx}>
+        <Suspense fallback={<div className="loading" aria-label="Loading..." />}>
+          <Login />
+        </Suspense>
+        {toastText && <div className="toast" role="status">{toastText}</div>}
+      </Context.Provider>
+    );
+  }
+  if (route === "/onboarding") {
+    return (
+      <Context.Provider value={ctx}>
+        <Suspense fallback={<div className="loading" aria-label="Loading..." />}>
+          <Onboarding />
+        </Suspense>
+        {toastText && <div className="toast" role="status">{toastText}</div>}
+      </Context.Provider>
+    );
+  }
+  if (!user) {
+    if (route === "/register") {
+      return (
+        <Context.Provider value={ctx}>
+          <Suspense fallback={<div className="loading" aria-label="Loading..." />}>
+            <Register />
+          </Suspense>
+          {toastText && <div className="toast" role="status">{toastText}</div>}
+        </Context.Provider>
+      );
+    }
+    return (
+      <Context.Provider value={ctx}>
+        <Suspense fallback={<div className="loading" aria-label="Loading..." />}>
+          <Login />
+        </Suspense>
+        {toastText && <div className="toast" role="status">{toastText}</div>}
+      </Context.Provider>
+    );
+  }
+
   let page: React.ReactNode;
   switch (route) {
     case "/":
-      page = <Home />;
+    case "/dashboard":
+      page = <Dashboard />;
       break;
     case "/forecast":
       page = <Forecast />;
@@ -438,12 +538,8 @@ export default function App() {
     case "/setup":
       page = <Setup />;
       break;
-    case "/dashboard":
-      page = <Dashboard />;
-      break;
     case "/profile":
     case "/settings":
-    case "/login":
       page = <Account />;
       break;
     case "/admin":
@@ -453,8 +549,8 @@ export default function App() {
       page = (
         <div className="empty-state">
           <h1>Page not found</h1>
-          <button className="button" onClick={() => navigate("/")}>
-            Back to overview
+          <button className="button" onClick={() => navigate("/dashboard")}>
+            Back to dashboard
           </button>
         </div>
       );
@@ -463,7 +559,7 @@ export default function App() {
     <Context.Provider value={ctx}>
       <SidebarProvider style={{ "--sidebar-width": "230px" } as React.CSSProperties}>
         <Sidebar>
-          <Nav route={route} navigate={navigate} />
+          <Nav route={route} navigate={navigate} language={language} />
         </Sidebar>
         <div className="shell">
           <header className="topbar">
@@ -526,16 +622,40 @@ export default function App() {
             <button className="icon-btn" aria-label="Use current location" onClick={geo}>
               <LocateFixed size={17} />
             </button>
-            <div className="language-select">
-              <Choice
-                label="Response language"
+            <div className="language-select" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Globe size={15} style={{ color: "var(--muted)" }} />
+              <select
+                aria-label="Application language"
                 value={language}
-                onChange={setLanguage}
-                items={[
-                  { value: "en", label: "EN" },
-                  { value: "hi", label: "हिन्दी" },
-                ]}
-              />
+                onChange={(e) => {
+                  const newLang = e.target.value;
+                  setLanguage(newLang);
+                  if (user) {
+                    const prefs = { ...(user.preferences || {}), language: newLang };
+                    api("/api/profile", {
+                      method: "PATCH",
+                      body: JSON.stringify({ preferences: prefs }),
+                    }).then((u) => setUser(u as Row)).catch(() => {});
+                  }
+                }}
+                style={{
+                  background: "rgba(255,255,255,0.06)",
+                  color: "var(--text)",
+                  border: "1px solid var(--line)",
+                  borderRadius: 6,
+                  padding: "4px 8px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  outline: "none",
+                }}
+              >
+                {LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code} style={{ background: "#111827", color: "#f8fafc" }}>
+                    {l.nativeName} ({l.code.toUpperCase()})
+                  </option>
+                ))}
+              </select>
             </div>
             <button
               className="icon-btn"

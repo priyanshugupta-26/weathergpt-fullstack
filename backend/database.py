@@ -30,6 +30,17 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(Text)
     role: Mapped[str] = mapped_column(String(20), default="user")
     preferences: Mapped[str] = mapped_column(Text, default="{}")
+    mobile: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    preferred_language: Mapped[str] = mapped_column(String(20), default="en")
+    state: Mapped[str | None] = mapped_column(String(100), default="", nullable=True)
+    district: Mapped[str | None] = mapped_column(String(100), default="", nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), default="", nullable=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_active: Mapped[int] = mapped_column(default=1)
+    created_at: Mapped[str] = mapped_column(String(40), default=now)
+    updated_at: Mapped[str] = mapped_column(String(40), default=now)
+    last_login: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
 class AuthSession(Base):
@@ -299,12 +310,54 @@ def save_record(key, kind, payload):
 
 def initialize():
     Base.metadata.create_all(engine)
-    from sqlalchemy import inspect, text
-    existing = {c["name"] for c in inspect(engine).get_columns("saved_locations")}
-    additions = {"district": "VARCHAR(100) DEFAULT ''", "state": "VARCHAR(100) DEFAULT ''",
-                 "radius_km": "FLOAT DEFAULT 25", "label": "VARCHAR(20) DEFAULT 'Custom'"}
+    from sqlalchemy import inspect, text, select
+    insp = inspect(engine)
+    existing_locs = {c["name"] for c in insp.get_columns("saved_locations")}
+    additions = {
+        "district": "VARCHAR(100) DEFAULT ''",
+        "state": "VARCHAR(100) DEFAULT ''",
+        "radius_km": "FLOAT DEFAULT 25",
+        "label": "VARCHAR(20) DEFAULT 'Custom'",
+    }
     with engine.begin() as db:
         for name, definition in additions.items():
-            if name not in existing:
+            if name not in existing_locs:
                 db.execute(text(f"ALTER TABLE saved_locations ADD COLUMN {name} {definition}"))
+
+    existing_users = {c["name"] for c in insp.get_columns("users")}
+    user_additions = {
+        "mobile": "VARCHAR(30)",
+        "preferred_language": "VARCHAR(20) DEFAULT 'en'",
+        "state": "VARCHAR(100) DEFAULT ''",
+        "district": "VARCHAR(100) DEFAULT ''",
+        "city": "VARCHAR(100) DEFAULT ''",
+        "latitude": "FLOAT",
+        "longitude": "FLOAT",
+        "is_active": "INTEGER DEFAULT 1",
+        "created_at": "VARCHAR(40)",
+        "updated_at": "VARCHAR(40)",
+        "last_login": "VARCHAR(40)",
+    }
+    with engine.begin() as db:
+        for name, definition in user_additions.items():
+            if name not in existing_users:
+                db.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
+
+    import os
+    admin_email = os.getenv("ADMIN_EMAIL")
+    admin_password = os.getenv("ADMIN_PASSWORD")
+    if admin_email and admin_password:
+        from .auth import hasher
+        with Session.begin() as db:
+            admin_user = db.scalar(select(User).where(User.email == admin_email.strip().lower()))
+            if not admin_user:
+                db.add(
+                    User(
+                        email=admin_email.strip().lower(),
+                        name="Administrator",
+                        password_hash=hasher.hash(admin_password),
+                        role="admin",
+                        preferred_language="en",
+                    )
+                )
 

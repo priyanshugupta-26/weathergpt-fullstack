@@ -4,6 +4,7 @@ import { Switch } from "@/components/ui/switch";
 import { useApp } from "@/lib/context";
 import { api, type Row } from "@/lib/api";
 import { Heading, Choice } from "@/components/WeatherUI";
+import { LANGUAGES, t } from "@/lib/i18n";
 export function Auth() {
   const { setUser, toast, navigate } = useApp();
   const [register, setRegister] = useState(false),
@@ -200,10 +201,10 @@ export default function Account() {
               label="Preferred language"
               value={language}
               onChange={setLanguage}
-              items={[
-                { value: "en", label: "English" },
-                { value: "hi", label: "हिन्दी" },
-              ]}
+              items={LANGUAGES.map((l) => ({
+                value: l.code,
+                label: `${l.nativeName} (${l.name})`,
+              }))}
             />
           </div>
           <div className="settings-row">
@@ -232,8 +233,11 @@ export default function Account() {
                   await api("/api/auth/logout", { method: "POST" });
                   setUser(null);
                   toast("Signed out");
+                  navigate("/login");
                 } catch (e) {
                   toast((e as Error).message);
+                  setUser(null);
+                  navigate("/login");
                 }
               }}
             >

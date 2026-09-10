@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, Plus, ArrowUp, Mic, Square, MapPin, MessageSquare } from "lucide-react";
+import { Sparkles, Plus, ArrowUp, Mic, Square, MapPin, MessageSquare, Volume2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useApp } from "@/lib/context";
 import { api, readLocal, writeLocal, number, type Row } from "@/lib/api";
 import { Heading } from "@/components/WeatherUI";
+import { getSpeechLocale, isRTL, getLanguageInfo, t } from "@/lib/i18n";
 type Message = { role: string; content: string; weather?: Row; mode?: string };
 export default function Chat() {
   const { place, language, toast } = useApp();
@@ -78,46 +79,68 @@ export default function Chat() {
       setBusy(false);
     }
   };
+  const speak = (content: string) => {
+    if (!("speechSynthesis" in window)) {
+      toast("Text-to-speech is not supported on this browser.");
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const clean = content.replace(/[*_#|`-]/g, "").trim();
+    const utterance = new SpeechSynthesisUtterance(clean);
+    const locale = getSpeechLocale(language);
+    utterance.lang = locale;
+    const voices = window.speechSynthesis.getVoices();
+    const matched = voices.find((v) => v.lang.replace("_", "-").toLowerCase().startsWith(locale.split("-")[0].toLowerCase()));
+    if (matched) utterance.voice = matched;
+    window.speechSynthesis.speak(utterance);
+  };
+
   const voice = () => {
     if (listening) {
       recognition.current?.stop();
       return;
     }
     const Speech = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!Speech) return;
+    if (!Speech) {
+      toast("Voice recognition is not supported on this browser.");
+      return;
+    }
     const r = new Speech();
     recognition.current = r;
-    r.lang = language === "hi" ? "hi-IN" : "en-IN";
+    const locale = getSpeechLocale(language);
+    r.lang = locale;
     r.interimResults = true;
     r.onstart = () => setListening(true);
     r.onend = () => setListening(false);
     r.onresult = (event: any) =>
       setText(
         Array.from(event.results)
-          .map((r: any) => r[0].transcript)
+          .map((res: any) => res[0].transcript)
           .join(" "),
       );
     r.onerror = (event: any) => {
       setListening(false);
-      toast(
-        event.error === "not-allowed"
-          ? "Microphone permission denied. You can still type your question."
-          : `Voice input: ${event.error}`,
-      );
+      if (event.error === "language-not-supported") {
+        toast(`Voice recognition is not available for ${getLanguageInfo(language).name} on this browser.`);
+      } else if (event.error === "not-allowed") {
+        toast("Microphone permission denied. You can still type your question.");
+      } else {
+        toast(`Voice input: ${event.error}. You can type your question.`);
+      }
     };
     try {
       r.start();
     } catch {
-      toast("Voice input could not start. Try typing instead.");
+      toast("Voice recognition is not available for this language on this browser.");
     }
   };
   return (
     <>
       <Heading
         title="Weather, in your words."
-        subtitle="A grounded weather assistant. English or Hindi. No AI key required."
+        subtitle={`Grounded meteorological assistant for India. Active: ${getLanguageInfo(language).nativeName} (${getLanguageInfo(language).name}). No AI key required.`}
       />
-      <div className="chat-layout">
+      <div className="chat-layout" dir={isRTL(language) ? "rtl" : "ltr"}>
         <aside className="card chat-history">
           <button
             className="button"
@@ -201,7 +224,28 @@ export default function Chat() {
             <div className="messages" aria-live="polite">
               {messages.map((m, i) => (
                 <article key={i} className={`message ${m.role}`}>
-                  <small>{m.role === "user" ? "YOU" : "WEATHERGPT"}</small>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                    <small>{m.role === "user" ? "YOU" : "WEATHERGPT"}</small>
+                    {m.role === "assistant" && (
+                      <button
+                        type="button"
+                        onClick={() => speak(m.content)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "var(--muted)",
+                          cursor: "pointer",
+                          padding: "2px 4px",
+                          display: "inline-flex",
+                          alignItems: "center",
+                        }}
+                        aria-label="Read answer aloud"
+                        title="Read aloud"
+                      >
+                        <Volume2 size={14} />
+                      </button>
+                    )}
+                  </div>
                   <ReactMarkdown>{m.content}</ReactMarkdown>
                   {m.weather?.status === "live" && (
                     <div className="list-item" style={{ marginTop: 12, color: "var(--cyan)" }}>

@@ -9,17 +9,47 @@ class Coordinates(BaseModel):
     name: str = Field("Patna", max_length=160)
 
 
+SUPPORTED_LANGUAGES = (
+    "en", "hi", "as", "bn", "brx", "doi", "gu", "kn", "ks",
+    "kok", "mai", "ml", "mni", "mr", "ne", "or", "pa", "sa",
+    "sat", "sd", "ta", "te", "ur"
+)
+
+
 class Credentials(BaseModel):
+    email: str | None = Field(default=None, max_length=254)
+    mobile: str | None = Field(default=None, max_length=30)
+    password: str = Field(min_length=8, max_length=128)
+    name: str = Field("Explorer", min_length=1, max_length=100)
+
+
+class RegisterInput(BaseModel):
     email: str = Field(
         min_length=5, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
     )
-    password: str = Field(min_length=10, max_length=128)
-    name: str = Field("Explorer", min_length=1, max_length=100)
+    password: str = Field(min_length=8, max_length=128)
+    confirm_password: str | None = Field(default=None, max_length=128)
+    name: str | None = Field(default=None, max_length=100)
+    full_name: str | None = Field(default=None, max_length=100)
+    mobile: str | None = Field(default=None, max_length=30)
+    mobile_number: str | None = Field(default=None, max_length=30)
+    state: str | None = Field(default="", max_length=100)
+    district: str | None = Field(default="", max_length=100)
+    city: str | None = Field(default="", max_length=100)
+    preferred_language: str = Field(default="en", max_length=20)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
+
+class LoginInput(BaseModel):
+    email: str | None = Field(default=None, max_length=254)
+    mobile: str | None = Field(default=None, max_length=30)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class ChatRequest(Coordinates):
     message: str = Field(min_length=1, max_length=2000)
-    language: Literal["en", "hi"] = "en"
+    language: str = Field("en", max_length=20)
     conversation: str = Field("default", max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
 
 
@@ -39,12 +69,18 @@ class PredictionRequest(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
-    language: Literal["en", "hi"] = "en"
-    theme: Literal["dark", "light", "system"] = "dark"
-    units: Literal["metric"] = "metric"
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    mobile: str | None = Field(default=None, max_length=30)
+    language: str | None = Field(default=None, max_length=20)
+    preferred_language: str | None = Field(default=None, max_length=20)
+    state: str | None = Field(default=None, max_length=100)
+    district: str | None = Field(default=None, max_length=100)
+    city: str | None = Field(default=None, max_length=100)
+    theme: Literal["dark", "light", "system"] | None = None
+    units: Literal["metric"] | None = None
     default_location: Coordinates | None = None
-    notifications: dict[str, bool] = Field(default_factory=dict, max_length=12)
+    notifications: dict[str, bool] | None = None
+    preferences: dict | None = None
 
 
 class SavedLocationInput(Coordinates):

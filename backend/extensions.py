@@ -64,7 +64,16 @@ async def setup_status(request: Request):
             "gemini_model": settings.gemini_model}
 
 
-@router.post("/api/setup", dependencies=[Depends(require_local)])
+def require_setup_access(request: Request):
+    require_local(request)
+    user = optional_user(request)
+    if not user:
+        raise HTTPException(401, "Sign in as administrator to configure credentials")
+    if user.role != "admin":
+        raise HTTPException(403, "Administrator access required to configure API credentials")
+
+
+@router.post("/api/setup", dependencies=[Depends(require_setup_access)])
 async def setup(payload: SetupInput):
     async with setup_lock:
         path = ROOT / ".env.local"

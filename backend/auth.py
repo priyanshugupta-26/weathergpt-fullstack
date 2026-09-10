@@ -14,6 +14,10 @@ def token_hash(token):
 def optional_user(request: Request):
     token = request.cookies.get("wg_session")
     if not token:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.removeprefix("Bearer ").strip()
+    if not token:
         return None
     with Session() as db:
         session = db.get(AuthSession, token_hash(token))
@@ -38,11 +42,27 @@ def require_admin(request: Request):
 
 def public_user(user):
     import json
-
+    prefs = {}
+    if getattr(user, "preferences", None):
+        try:
+            prefs = json.loads(user.preferences)
+        except Exception:
+            prefs = {}
     return {
         "id": user.id,
         "email": user.email,
         "name": user.name,
+        "full_name": user.name,
         "role": user.role,
-        "preferences": json.loads(user.preferences),
+        "mobile": getattr(user, "mobile", None) or "",
+        "preferred_language": getattr(user, "preferred_language", "en") or "en",
+        "state": getattr(user, "state", None) or "",
+        "district": getattr(user, "district", None) or "",
+        "city": getattr(user, "city", None) or "",
+        "latitude": getattr(user, "latitude", None),
+        "longitude": getattr(user, "longitude", None),
+        "is_active": getattr(user, "is_active", 1),
+        "created_at": getattr(user, "created_at", None),
+        "last_login": getattr(user, "last_login", None),
+        "preferences": prefs,
     }
