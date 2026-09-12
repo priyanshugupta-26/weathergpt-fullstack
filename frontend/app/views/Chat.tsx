@@ -17,6 +17,7 @@ import {
   Sun,
   Wind,
   ShieldAlert,
+  Copy,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useApp } from "@/lib/context";
@@ -55,6 +56,8 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   intent?: string;
+  response_mode?: string;
+  city_name?: string | null;
   weather?: Row;
   mode?: string;
   structured?: StructuredAnswerData;
@@ -71,6 +74,7 @@ export default function Chat() {
   );
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busyText, setBusyText] = useState("WeatherGPT is thinking…");
   const [chatMode, setChatMode] = useState<"standard" | "simple" | "technical">("standard");
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(false);
@@ -120,6 +124,17 @@ export default function Chat() {
       ...c,
       [id]: [...(c[id] || []), { role: "user", content: query }],
     }));
+
+    let statusLabel = "WeatherGPT is thinking…";
+    const lq = query.toLowerCase();
+    if (lq.includes("cyclone") || lq.includes("warning") || lq.includes("alert") || lq.includes("flood")) {
+      statusLabel = "Checking alerts…";
+    } else if (lq.includes("irrigate") || lq.includes("crop") || lq.includes("spray") || lq.includes("fertilizer") || lq.includes("kheti")) {
+      statusLabel = "Preparing advisory…";
+    } else if (lq.includes("weather") || lq.includes("rain") || lq.includes("temperature") || lq.includes("forecast") || lq.includes("mausam")) {
+      statusLabel = "Fetching live weather data…";
+    }
+    setBusyText(statusLabel);
     setBusy(true);
 
     try {
@@ -129,6 +144,7 @@ export default function Chat() {
           message: query,
           language,
           conversation: id,
+          session_id: id,
           mode: modeOverride || chatMode,
           latitude: place?.latitude,
           longitude: place?.longitude,
@@ -136,10 +152,11 @@ export default function Chat() {
         }),
       });
 
-      const isWeather = result.type === "weather" || (result.intent && result.intent !== "GENERAL" && Boolean(result.structured));
-      const structured: StructuredAnswerData | undefined = isWeather ? result.structured || undefined : undefined;
-      const intent: string = isWeather ? (result.intent || "WEATHER") : "GENERAL";
-      const content: string = result.content || result.message || (isWeather ? structured?.summary : "") || "No response generated.";
+      const responseMode = result.response_mode || (result.type === "general" ? "general" : "weather");
+      const isGeneral = responseMode === "general" || result.intent === "greeting" || result.intent === "general";
+      const structured: StructuredAnswerData | undefined = !isGeneral ? result.structured || undefined : undefined;
+      const intent: string = result.intent || (isGeneral ? "general" : "weather");
+      const content: string = result.reply || result.content || result.message || (!isGeneral ? structured?.summary : "") || "No response generated.";
 
       setConversations((c) => ({
         ...c,
@@ -149,7 +166,9 @@ export default function Chat() {
             role: "assistant",
             content,
             intent,
-            weather: isWeather ? result.weather : undefined,
+            response_mode: responseMode,
+            city_name: result.city_name,
+            weather: !isGeneral ? result.weather : undefined,
             mode: result.mode,
             structured,
             showTechnical: false,
@@ -369,32 +388,58 @@ export default function Chat() {
                     <small style={{ fontWeight: 700, letterSpacing: "0.06em", color: "var(--muted)" }}>
                       {m.role === "user"
                         ? "YOU"
-                        : m.intent === "GENERAL" || !m.structured
+                        : m.response_mode === "general" || m.intent === "greeting" || m.intent === "general" || !m.structured
                         ? "WEATHERGPT"
+                        : m.response_mode === "disaster"
+                        ? "WEATHERGPT DISASTER ALERT"
+                        : m.response_mode === "agro"
+                        ? "WEATHERGPT AGRO ADVISORY"
                         : "WEATHERGPT INTELLIGENCE"}
                     </small>
                     {m.role === "assistant" && (
-                      <button
-                        type="button"
-                        onClick={() => speak(m.structured?.summary || m.content)}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "var(--muted)",
-                          cursor: "pointer",
-                          padding: "2px 4px",
-                          display: "inline-flex",
-                          alignItems: "center",
-                        }}
-                        aria-label="Read answer aloud"
-                        title="Read aloud"
-                      >
-                        <Volume2 size={15} />
-                      </button>
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(m.content);
+                            toast("Copied to clipboard!");
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "var(--muted)",
+                            cursor: "pointer",
+                            padding: "2px 4px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                          }}
+                          aria-label="Copy answer"
+                          title="Copy answer"
+                        >
+                          <Copy size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => speak(m.structured?.summary || m.content)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "var(--muted)",
+                            cursor: "pointer",
+                            padding: "2px 4px",
+                            display: "inline-flex",
+                            alignItems: "center",
+                          }}
+                          aria-label="Read answer aloud"
+                          title="Read aloud"
+                        >
+                          <Volume2 size={15} />
+                        </button>
+                      </div>
                     )}
                   </div>
 
-                  {m.role === "assistant" && m.structured && m.intent !== "GENERAL" ? (
+                  {m.role === "assistant" && m.structured && m.response_mode !== "general" && m.intent !== "general" && m.intent !== "greeting" ? (
                     <div className="structured-answer-container">
                       {/* 1. Quick Answer Card */}
                       <div className={`quick-answer-card ${getSeverityClass(m.structured.severity)}`}>
@@ -537,7 +582,7 @@ export default function Chat() {
                     </div>
                   )}
 
-                  {m.weather?.status === "live" && m.intent !== "GENERAL" && m.structured && (
+                  {m.weather?.status === "live" && m.response_mode === "weather" && m.structured && (
                     <div className="list-item" style={{ marginTop: 12, color: "var(--cyan)", fontSize: 12 }}>
                       {number(m.weather.current?.temperature_2m)} °C ·{" "}
                       {number(m.weather.current?.wind_speed_10m)} km/h · {m.weather.source}
@@ -551,7 +596,7 @@ export default function Chat() {
 
               {busy && (
                 <article className="message" role="status">
-                  <Sparkles size={16} className="spin" /> Thinking…
+                  <Sparkles size={16} className="spin" /> {busyText}
                 </article>
               )}
               <div ref={bottom} />

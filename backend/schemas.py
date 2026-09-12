@@ -83,6 +83,7 @@ class ChatRequest(Coordinates):
     message: str = Field(min_length=1, max_length=2000)
     language: str = Field("en", max_length=20)
     conversation: str | None = Field(default=None, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+    session_id: str | None = Field(default=None, max_length=64)
     sector: str | None = Field(default=None, max_length=30)
     mode: Literal["simple", "standard", "technical"] = "standard"
     explain_more: bool = False

@@ -27,26 +27,26 @@ def test_intent_classification_general_queries():
     ]
     for q in general_queries:
         route = intent_router.classify(q)
-        assert route.intent == "GENERAL", f"Query '{q}' should be classified as GENERAL, got {route.intent}"
+        assert route.domain == "general" or route.intent.lower() in ("general", "greeting"), f"Query '{q}' should be classified as general, got {route.intent}"
         assert route.requires_weather_tool is False, f"Query '{q}' should NOT require weather tools"
         assert route.location is None, f"Query '{q}' should not extract weather location"
 
 
 def test_intent_classification_weather_queries():
     weather_queries = [
-        ("What's the weather in Guntur?", "WEATHER_CURRENT", "Guntur"),
-        ("Will it rain tomorrow in Guntur?", "WEATHER_FORECAST", "Guntur"),
-        ("Temperature in Delhi today?", "WEATHER_CURRENT", "Delhi"),
-        ("Is Guntur hot today?", "WEATHER_CURRENT", "Guntur"),
-        ("What's the weather this weekend?", "WEATHER_FORECAST", None),
-        ("Will the cyclone affect Andhra Pradesh?", "DISASTER_WEATHER", "Andhra Pradesh"),
-        ("Should I carry an umbrella to college tomorrow?", "WEATHER_FORECAST", None),
-        ("Can I go outside tomorrow if it rains?", "WEATHER_FORECAST", None),
+        ("What's the weather in Guntur?", "weather_current", "Guntur"),
+        ("Will it rain tomorrow in Guntur?", "weather_forecast", "Guntur"),
+        ("Temperature in Delhi today?", "weather_current", "Delhi"),
+        ("Is Guntur hot today?", "weather_current", "Guntur"),
+        ("What's the weather this weekend?", "weather_forecast", None),
+        ("Will the cyclone affect Andhra Pradesh?", "disaster_live", "Andhra Pradesh"),
+        ("Should I carry an umbrella to college tomorrow?", "weather_forecast", None),
+        ("Can I go outside tomorrow if it rains?", "weather_forecast", None),
     ]
     for q, expected_intent, expected_loc in weather_queries:
         route = intent_router.classify(q)
         assert route.requires_weather_tool is True, f"Query '{q}' should require weather tools"
-        assert route.intent == expected_intent, f"Query '{q}' expected intent {expected_intent}, got {route.intent}"
+        assert route.intent.lower() == expected_intent.lower(), f"Query '{q}' expected intent {expected_intent}, got {route.intent}"
         if expected_loc:
             assert route.location and expected_loc.lower() in route.location.lower(), f"Query '{q}' expected location {expected_loc}, got {route.location}"
 
@@ -69,7 +69,8 @@ def test_conversational_followup_and_reset():
 
     # Turn 3: User switches to general question -> MUST switch to GENERAL
     r3 = intent_router.classify("Explain recursion in Python.", conversation_context=ctx)
-    assert r3.intent == "GENERAL"
+    assert r3.intent.lower() in ("general", "greeting")
+    assert r3.domain == "general"
     assert r3.requires_weather_tool is False
     assert r3.location is None
 
@@ -80,10 +81,11 @@ def test_api_chat_general_queries_no_weather_cards(client):
     assert r.status_code == 200
     data = r.json()
     assert data.get("type") == "general"
-    assert data.get("intent") == "GENERAL"
+    assert data.get("intent").lower() in ("general", "greeting")
+    assert data.get("response_mode") == "general"
     assert data.get("structured") is None, "GENERAL response should NOT contain structured weather cards"
     assert data.get("weather") is None, "GENERAL response should NOT contain weather data"
-    assert "Hi" in data.get("message") or "help" in data.get("message")
+    assert "WeatherGPT" in data.get("message") or "help" in data.get("message").lower() or "hi" in data.get("message").lower()
     # Verify no weather terms are forced into "Hi" response
     assert "Guntur" not in data.get("message")
     assert "precipitation" not in data.get("message").lower()
@@ -93,7 +95,8 @@ def test_api_chat_general_queries_no_weather_cards(client):
     assert r2.status_code == 200
     d2 = r2.json()
     assert d2.get("type") == "general"
-    assert d2.get("intent") == "GENERAL"
+    assert d2.get("intent").lower() == "general"
+    assert d2.get("response_mode") == "general"
     assert d2.get("structured") is None
     assert "machine learning" in d2.get("message").lower() or "data" in d2.get("message").lower()
 
@@ -102,7 +105,8 @@ def test_api_chat_general_queries_no_weather_cards(client):
     assert r_py.status_code == 200
     d_py = r_py.json()
     assert d_py.get("type") == "general"
-    assert d_py.get("intent") == "GENERAL"
+    assert d_py.get("intent").lower() == "general"
+    assert d_py.get("response_mode") == "general"
     assert d_py.get("structured") is None
     assert "python" in d_py.get("message").lower()
     assert "Guntur" not in d_py.get("message")
@@ -112,7 +116,8 @@ def test_api_chat_general_queries_no_weather_cards(client):
     assert r_rec.status_code == 200
     d_rec = r_rec.json()
     assert d_rec.get("type") == "general"
-    assert d_rec.get("intent") == "GENERAL"
+    assert d_rec.get("intent").lower() == "general"
+    assert d_rec.get("response_mode") == "general"
     assert d_rec.get("structured") is None
     assert "recursion" in d_rec.get("message").lower()
 
@@ -121,7 +126,8 @@ def test_api_chat_general_queries_no_weather_cards(client):
     assert r_rev.status_code == 200
     d_rev = r_rev.json()
     assert d_rev.get("type") == "general"
-    assert d_rev.get("intent") == "GENERAL"
+    assert d_rev.get("intent").lower() == "general"
+    assert d_rev.get("response_mode") == "general"
     assert d_rev.get("structured") is None
     assert "reversed" in d_rev.get("message").lower() or "reverse" in d_rev.get("message").lower()
 
@@ -130,7 +136,8 @@ def test_api_chat_general_queries_no_weather_cards(client):
     assert r3.status_code == 200
     d3 = r3.json()
     assert d3.get("type") == "general"
-    assert d3.get("intent") == "GENERAL"
+    assert d3.get("intent").lower() == "general"
+    assert d3.get("response_mode") == "general"
     assert "Tokyo" in d3.get("message")
 
 
@@ -140,7 +147,8 @@ def test_api_chat_weather_queries_grounded(client):
     assert r.status_code == 200
     data = r.json()
     assert data.get("type") == "weather"
-    assert data.get("intent") == "WEATHER_CURRENT"
+    assert data.get("intent").lower() == "weather_current"
+    assert data.get("response_mode") == "weather"
     assert data.get("structured") is not None, "Weather response MUST contain structured weather card"
     assert data.get("weather") is not None, "Weather response MUST contain weather data"
     assert "Guntur" in data["query"]["location"] or "guntur" in data["location"]["name"].lower()
@@ -150,7 +158,8 @@ def test_api_chat_weather_queries_grounded(client):
     assert r_rain.status_code == 200
     d_rain = r_rain.json()
     assert d_rain.get("type") == "weather"
-    assert d_rain.get("intent") == "WEATHER_FORECAST"
+    assert d_rain.get("intent").lower() == "weather_forecast"
+    assert d_rain.get("response_mode") == "weather"
     assert d_rain.get("structured") is not None
     assert d_rain.get("weather") is not None
 
@@ -159,7 +168,8 @@ def test_api_chat_weather_queries_grounded(client):
     assert r_umb.status_code == 200
     d_umb = r_umb.json()
     assert d_umb.get("type") == "weather"
-    assert d_umb.get("intent") == "WEATHER_FORECAST"
+    assert d_umb.get("intent").lower() == "weather_forecast"
+    assert d_umb.get("response_mode") == "weather"
     assert d_umb.get("structured") is not None
 
 
@@ -171,7 +181,7 @@ def test_api_chat_followup_and_mode_switching(client):
     assert r1.status_code == 200
     d1 = r1.json()
     assert d1.get("type") == "weather"
-    assert d1.get("intent") == "WEATHER_CURRENT"
+    assert d1.get("intent").lower() == "weather_current"
     assert d1.get("structured") is not None
 
     # 2. Elliptical follow-up: "What about tomorrow?"
@@ -179,7 +189,7 @@ def test_api_chat_followup_and_mode_switching(client):
     assert r2.status_code == 200
     d2 = r2.json()
     assert d2.get("type") == "weather"
-    assert d2.get("intent") in ("WEATHER_FORECAST", "WEATHER_CURRENT")
+    assert d2.get("intent").lower() in ("weather_forecast", "weather_current")
     assert d2.get("structured") is not None
 
     # 3. General switch: "Explain recursion in Python."
@@ -187,7 +197,8 @@ def test_api_chat_followup_and_mode_switching(client):
     assert r3.status_code == 200
     d3 = r3.json()
     assert d3.get("type") == "general"
-    assert d3.get("intent") == "GENERAL"
+    assert d3.get("intent").lower() == "general"
+    assert d3.get("response_mode") == "general"
     assert d3.get("structured") is None
     assert d3.get("weather") is None
     assert "recursion" in d3.get("message").lower()

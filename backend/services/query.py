@@ -176,10 +176,10 @@ class WeatherQueryEngine:
 
     async def prepare(self, request):
         route = intent_router.classify(request.message)
-        if not route.requires_weather_tool:
+        if not route.requires_live_data or route.domain == "general":
             return {
                 "message": "Hi! How can I help you today?",
-                "query": {"intent": "GENERAL", "language": request.language or "en", "requires_weather_tool": False, "location": None},
+                "query": {"intent": route.intent, "domain": "general", "language": request.language or "en", "requires_weather_tool": False, "location": None},
                 "mode": "general",
                 "weather": None,
                 "tool_context": {},

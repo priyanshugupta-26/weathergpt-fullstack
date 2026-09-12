@@ -211,7 +211,7 @@ class WeatherGPTOrchestrator:
         }
 
     async def answer(self, request: ChatRequest) -> dict[str, Any]:
-        conv_id = request.conversation.strip() if request.conversation and request.conversation.strip() else None
+        conv_id = (request.conversation or getattr(request, "session_id", None) or "").strip() or None
         prior_state = self.memory.get(conv_id) if conv_id else {}
 
         clean_msg = request.message.strip().replace("\n", " ")
@@ -229,34 +229,46 @@ class WeatherGPTOrchestrator:
         print(f'[ROUTER] Result: {route.intent}', flush=True)
         log.info(f'[ROUTER] Result: {route.intent}')
 
-        # 3. Handle GENERAL Queries (No weather tools called, no location forced)
-        if not route.requires_weather_tool:
+        # 3. Handle GENERAL & GREETING Queries (No weather tools called, no location forced)
+        if not route.requires_live_data or route.domain == "general":
             print('[WEATHER] Tool call: SKIPPED', flush=True)
             log.info('[WEATHER] Tool call: SKIPPED')
             print('[LLM] Route: GENERAL', flush=True)
             log.info('[LLM] Route: GENERAL')
 
             if conv_id:
-                self.memory.update(conv_id, {"last_intent": "GENERAL"})
+                self.memory.update(conv_id, {"last_intent": "general", "location_name": None})
 
-            ai_context = {
-                "message": request.message,
-                "language": lang,
-                "intent": "GENERAL",
-                "requires_weather_tool": False,
-                "fallback": None,
-            }
+            answer_text = ""
             mode = "deterministic"
             ai_meta = {}
-            answer_text = ""
-            try:
-                ai_res = await ai_router.generate(ai_context)
-                if ai_res and ai_res.text:
-                    answer_text = ai_res.text.strip()
-                    mode = ai_res.provider
-                    ai_meta = {"provider": ai_res.provider, "model": ai_res.model, "usage": ai_res.usage}
-            except Exception as e:
-                log.info("ai_router_general_error: %s", e)
+
+            # Case 1: Greeting
+            if route.intent == "greeting":
+                if lang == "hi":
+                    answer_text = "नमस्ते! 👋 मैं WeatherGPT हूँ। मैं सामान्य प्रश्नों के साथ-साथ मौसम, पूर्वानुमान, आपदा अलर्ट और कृषि सलाह में मदद कर सकता हूँ। मैं आपकी कैसे मदद कर सकता हूँ?"
+                elif lang == "te":
+                    answer_text = "నమస్కారం! 👋 నేను WeatherGPT. సాధారణ ప్రశ్నలతో పాటు వాతావరణం, సూచనలు, విపత్తు హెచ్చరికలు మరియు వ్యవసాయ సలహాలలో నేను మీకు సహాయం చేయగలను. నేను మీకు ఎలా సహాయపడగలను?"
+                elif lang == "ta":
+                    answer_text = "வணக்கம்! 👋 நான் WeatherGPT. பொதுவான கேள்விகள் மற்றும் வானிலை, முன்னறிவிப்புகள், பேரிடர் எச்சரிக்கைகள் மற்றும் விவசாய ஆலோசனைகளுக்கு நான் உதவ முடியும். நான் உங்களுக்கு எப்படி உதவ முடியும்?"
+                else:
+                    answer_text = "Hi! 👋 I'm WeatherGPT. I can help with general questions as well as weather, forecasts, disaster alerts, farming advisories, climate information, and more. How can I help you today?"
+            else:
+                ai_context = {
+                    "message": request.message,
+                    "language": lang,
+                    "intent": "general",
+                    "requires_weather_tool": False,
+                    "fallback": None,
+                }
+                try:
+                    ai_res = await ai_router.generate(ai_context)
+                    if ai_res and ai_res.text:
+                        answer_text = ai_res.text.strip()
+                        mode = ai_res.provider
+                        ai_meta = {"provider": ai_res.provider, "model": ai_res.model, "usage": ai_res.usage}
+                except Exception as e:
+                    log.info("ai_router_general_error: %s", e)
 
             if not answer_text:
                 answer_text = "Hi! How can I help you today?"
@@ -265,20 +277,27 @@ class WeatherGPTOrchestrator:
             log.info('[RESPONSE] Type: GENERAL')
 
             return {
-                "type": "general",
+                "reply": answer_text,
                 "message": answer_text,
                 "content": answer_text,
-                "intent": "GENERAL",
+                "intent": route.intent,
+                "response_mode": "general",
+                "type": "general",
+                "city_name": None,
+                "disaster_alert": None,
+                "data": None,
                 "structured": None,
                 "weather": None,
                 "query": {
-                    "intent": "GENERAL",
+                    "intent": route.intent,
+                    "domain": "general",
                     "language": lang,
                     "sector": "general",
                     "time_target": None,
                     "time_period": None,
                     "location": None,
                     "requires_weather_tool": False,
+                    "requires_location": False,
                 },
                 "mode": mode,
                 "ai": ai_meta,
@@ -293,7 +312,9 @@ class WeatherGPTOrchestrator:
             parsed.update(route.details)
 
         # Conversational follow-up resolution
-        location_name = route.location or (prior_state.get("location_name") if not route.route else None) or request.name
+        location_name = route.location or (prior_state.get("location_name") if not route.route else None)
+        if not location_name and route.requires_location:
+            location_name = request.name or "Your Location"
         time_target = route.time_range or parsed["time_target"] or prior_state.get("time_target") or "today"
         time_period = route.time_period or parsed["time_period"] or prior_state.get("time_period") or "all_day"
         sector = route.sector if route.sector != "general" else (prior_state.get("sector") or "general")
@@ -790,20 +811,29 @@ class WeatherGPTOrchestrator:
         print('[RESPONSE] Type: WEATHER', flush=True)
         log.info('[RESPONSE] Type: WEATHER')
 
+        response_mode = route.domain if route.domain in ("weather", "disaster", "agro", "air_quality", "marine", "climate") else "weather"
+
         return {
-            "type": "weather",
+            "reply": msg_markdown,
             "message": msg_markdown,
             "content": msg_markdown,
             "intent": route.intent,
+            "response_mode": response_mode,
+            "type": "weather",
+            "city_name": location_name,
+            "disaster_alert": evidence.get("alerts"),
+            "data": evidence,
             "structured": structured.model_dump(),
             "query": {
                 "intent": route.intent,
+                "domain": route.domain,
                 "language": lang,
                 "sector": sector,
                 "time_target": time_target,
                 "time_period": time_period,
                 "location": location_name,
                 "requires_weather_tool": True,
+                "requires_location": True,
             },
             "mode": mode,
             "ai": ai_meta,
