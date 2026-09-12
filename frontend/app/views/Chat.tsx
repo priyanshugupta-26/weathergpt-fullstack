@@ -54,6 +54,7 @@ export interface StructuredAnswerData {
 export interface Message {
   role: "user" | "assistant";
   content: string;
+  intent?: string;
   weather?: Row;
   mode?: string;
   structured?: StructuredAnswerData;
@@ -125,15 +126,20 @@ export default function Chat() {
       const result = await api("/api/chat", {
         method: "POST",
         body: JSON.stringify({
-          ...place,
           message: query,
           language,
           conversation: id,
           mode: modeOverride || chatMode,
+          latitude: place?.latitude,
+          longitude: place?.longitude,
+          name: place?.name,
         }),
       });
 
-      const structured: StructuredAnswerData | undefined = result.structured;
+      const isWeather = result.type === "weather" || (result.intent && result.intent !== "GENERAL" && Boolean(result.structured));
+      const structured: StructuredAnswerData | undefined = isWeather ? result.structured || undefined : undefined;
+      const intent: string = isWeather ? (result.intent || "WEATHER") : "GENERAL";
+      const content: string = result.content || result.message || (isWeather ? structured?.summary : "") || "No response generated.";
 
       setConversations((c) => ({
         ...c,
@@ -141,8 +147,9 @@ export default function Chat() {
           ...(c[id] || []),
           {
             role: "assistant",
-            content: result.message || structured?.summary || "No response generated.",
-            weather: result.weather,
+            content,
+            intent,
+            weather: isWeather ? result.weather : undefined,
             mode: result.mode,
             structured,
             showTechnical: false,
@@ -360,7 +367,11 @@ export default function Chat() {
                     }}
                   >
                     <small style={{ fontWeight: 700, letterSpacing: "0.06em", color: "var(--muted)" }}>
-                      {m.role === "user" ? "YOU" : "WEATHERGPT INTELLIGENCE"}
+                      {m.role === "user"
+                        ? "YOU"
+                        : m.intent === "GENERAL" || !m.structured
+                        ? "WEATHERGPT"
+                        : "WEATHERGPT INTELLIGENCE"}
                     </small>
                     {m.role === "assistant" && (
                       <button
@@ -383,7 +394,7 @@ export default function Chat() {
                     )}
                   </div>
 
-                  {m.role === "assistant" && m.structured ? (
+                  {m.role === "assistant" && m.structured && m.intent !== "GENERAL" ? (
                     <div className="structured-answer-container">
                       {/* 1. Quick Answer Card */}
                       <div className={`quick-answer-card ${getSeverityClass(m.structured.severity)}`}>
@@ -521,10 +532,12 @@ export default function Chat() {
                       )}
                     </div>
                   ) : (
-                    <ReactMarkdown>{m.content}</ReactMarkdown>
+                    <div className="general-chat-text" style={{ lineHeight: 1.65, fontSize: "0.95rem" }}>
+                      <ReactMarkdown>{m.content}</ReactMarkdown>
+                    </div>
                   )}
 
-                  {m.weather?.status === "live" && (
+                  {m.weather?.status === "live" && m.intent !== "GENERAL" && m.structured && (
                     <div className="list-item" style={{ marginTop: 12, color: "var(--cyan)", fontSize: 12 }}>
                       {number(m.weather.current?.temperature_2m)} °C ·{" "}
                       {number(m.weather.current?.wind_speed_10m)} km/h · {m.weather.source}
@@ -538,7 +551,7 @@ export default function Chat() {
 
               {busy && (
                 <article className="message" role="status">
-                  <Sparkles size={16} className="spin" /> Orchestrating real meteorological data & RAG…
+                  <Sparkles size={16} className="spin" /> Thinking…
                 </article>
               )}
               <div ref={bottom} />

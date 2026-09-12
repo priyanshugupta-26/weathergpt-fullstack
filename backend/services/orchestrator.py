@@ -19,6 +19,7 @@ from ..providers.engine import weather_engine
 from ..services.rag import knowledge_base
 from ..ml.registry import model_registry
 from .query import LOCALIZED_TEMPLATES
+from .intent_router import intent_router
 
 log = logging.getLogger("weathergpt.orchestrator")
 
@@ -213,22 +214,96 @@ class WeatherGPTOrchestrator:
         conv_id = request.conversation.strip() if request.conversation and request.conversation.strip() else None
         prior_state = self.memory.get(conv_id) if conv_id else {}
 
-        # 1. Parse language, intent and entities
-        lang = self.detect_language(request.message, request.language)
-        parsed = self.parse_intent_and_entities(request.message, request.sector)
+        clean_msg = request.message.strip().replace("\n", " ")
+        print(f'[CHAT] User message: {clean_msg}', flush=True)
+        log.info(f'[CHAT] User message: {clean_msg}')
+        print('[ROUTER] Running intent classification...', flush=True)
+        log.info('[ROUTER] Running intent classification...')
 
-        # 2. Conversational follow-up resolution
-        location_name = parsed["location"] or (prior_state.get("location_name") if not parsed["route"] else None) or request.name
-        time_target = parsed["time_target"] or prior_state.get("time_target") or "today"
-        time_period = parsed["time_period"] or prior_state.get("time_period") or "all_day"
-        sector = parsed["sector"] if parsed["sector"] != "general" else (prior_state.get("sector") or "general")
+        # 1. Parse language
+        lang = self.detect_language(request.message, request.language)
+
+        # 2. Intelligent Intent & Query Routing
+        route = intent_router.classify(request.message, conversation_context=prior_state, sector_hint=request.sector)
+
+        print(f'[ROUTER] Result: {route.intent}', flush=True)
+        log.info(f'[ROUTER] Result: {route.intent}')
+
+        # 3. Handle GENERAL Queries (No weather tools called, no location forced)
+        if not route.requires_weather_tool:
+            print('[WEATHER] Tool call: SKIPPED', flush=True)
+            log.info('[WEATHER] Tool call: SKIPPED')
+            print('[LLM] Route: GENERAL', flush=True)
+            log.info('[LLM] Route: GENERAL')
+
+            if conv_id:
+                self.memory.update(conv_id, {"last_intent": "GENERAL"})
+
+            ai_context = {
+                "message": request.message,
+                "language": lang,
+                "intent": "GENERAL",
+                "requires_weather_tool": False,
+                "fallback": None,
+            }
+            mode = "deterministic"
+            ai_meta = {}
+            answer_text = ""
+            try:
+                ai_res = await ai_router.generate(ai_context)
+                if ai_res and ai_res.text:
+                    answer_text = ai_res.text.strip()
+                    mode = ai_res.provider
+                    ai_meta = {"provider": ai_res.provider, "model": ai_res.model, "usage": ai_res.usage}
+            except Exception as e:
+                log.info("ai_router_general_error: %s", e)
+
+            if not answer_text:
+                answer_text = "Hi! How can I help you today?"
+
+            print('[RESPONSE] Type: GENERAL', flush=True)
+            log.info('[RESPONSE] Type: GENERAL')
+
+            return {
+                "type": "general",
+                "message": answer_text,
+                "content": answer_text,
+                "intent": "GENERAL",
+                "structured": None,
+                "weather": None,
+                "query": {
+                    "intent": "GENERAL",
+                    "language": lang,
+                    "sector": "general",
+                    "time_target": None,
+                    "time_period": None,
+                    "location": None,
+                    "requires_weather_tool": False,
+                },
+                "mode": mode,
+                "ai": ai_meta,
+                "location": None,
+                "source": None,
+                "sources": [],
+            }
+
+        # 4. Handle WEATHER & Domain Queries
+        parsed = self.parse_intent_and_entities(request.message, request.sector)
+        if route.details:
+            parsed.update(route.details)
+
+        # Conversational follow-up resolution
+        location_name = route.location or (prior_state.get("location_name") if not route.route else None) or request.name
+        time_target = route.time_range or parsed["time_target"] or prior_state.get("time_target") or "today"
+        time_period = route.time_period or parsed["time_period"] or prior_state.get("time_period") or "all_day"
+        sector = route.sector if route.sector != "general" else (prior_state.get("sector") or "general")
 
         lat, lon = request.latitude, request.longitude
 
-        # 3. Location geocoding if a new specific location was extracted
-        if parsed["location"] and parsed["location"].lower() != (prior_state.get("location_name") or "").lower():
+        # Location geocoding if a new specific location was extracted
+        if route.location and route.location.lower() != (prior_state.get("location_name") or "").lower():
             try:
-                matches = await weather_engine.search(parsed["location"])
+                matches = await weather_engine.search(route.location)
                 if matches:
                     lat, lon = matches[0]["latitude"], matches[0]["longitude"]
                     location_name = matches[0]["name"]
@@ -244,11 +319,20 @@ class WeatherGPTOrchestrator:
                 "time_target": time_target,
                 "time_period": time_period,
                 "sector": sector,
+                "last_intent": route.intent,
             })
 
-        # 4. Safe Tool Execution & Real Data Retrieval
+        # Safe Tool Execution & Real Data Retrieval
         evidence: dict[str, Any] = {}
         sources: list[dict[str, str]] = []
+
+        if location_name:
+            print(f'[WEATHER] Location: {location_name}', flush=True)
+            log.info(f'[WEATHER] Location: {location_name}')
+        print('[WEATHER] Tool call: CALLED', flush=True)
+        log.info('[WEATHER] Tool call: CALLED')
+        print('[LLM] Route: WEATHER', flush=True)
+        log.info('[LLM] Route: WEATHER')
 
         # Tool 1: Live weather & forecast
         weather = await weather_engine.weather(lat, lon)
@@ -659,6 +743,8 @@ class WeatherGPTOrchestrator:
         ai_context = {
             "message": request.message,
             "language": lang,
+            "intent": route.intent,
+            "requires_weather_tool": True,
             "data": {
                 "summary": summary,
                 "location": location_name,
@@ -701,15 +787,23 @@ class WeatherGPTOrchestrator:
         if structured.sources:
             msg_markdown += f"*Sources: {', '.join(s.name for s in structured.sources)}*"
 
+        print('[RESPONSE] Type: WEATHER', flush=True)
+        log.info('[RESPONSE] Type: WEATHER')
+
         return {
+            "type": "weather",
             "message": msg_markdown,
+            "content": msg_markdown,
+            "intent": route.intent,
             "structured": structured.model_dump(),
             "query": {
+                "intent": route.intent,
                 "language": lang,
                 "sector": sector,
                 "time_target": time_target,
                 "time_period": time_period,
                 "location": location_name,
+                "requires_weather_tool": True,
             },
             "mode": mode,
             "ai": ai_meta,

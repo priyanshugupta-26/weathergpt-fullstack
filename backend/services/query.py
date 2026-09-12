@@ -9,6 +9,7 @@ from ..providers.engine import weather_engine as provider
 from ..config import settings
 from ..ml.registry import model_registry
 from ..ml.features import MLFeatureBuilder, feature_registry
+from .intent_router import intent_router
 LOCALIZED_TEMPLATES = {
     "en": {
         "unavailable": "Weather data is temporarily unavailable. Please try again shortly. I cannot verify current conditions.",
@@ -174,6 +175,15 @@ class WeatherQueryEngine:
         }
 
     async def prepare(self, request):
+        route = intent_router.classify(request.message)
+        if not route.requires_weather_tool:
+            return {
+                "message": "Hi! How can I help you today?",
+                "query": {"intent": "GENERAL", "language": request.language or "en", "requires_weather_tool": False, "location": None},
+                "mode": "general",
+                "weather": None,
+                "tool_context": {},
+            }
         query = self.extract(request.message, request.language)
         lat, lon, name = request.latitude, request.longitude, request.name
         if query["location"]:

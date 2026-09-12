@@ -4,6 +4,7 @@ from dataclasses import asdict
 from ..config import settings
 from .groq_provider import GroqProvider
 from .gemini_provider import GeminiProvider
+from .openai_provider import OpenAIProvider
 from .fallback_provider import DeterministicWeatherProvider
 
 
@@ -19,7 +20,8 @@ class AIProviderRouter:
         if self.injected:
             return
         sig = (settings.groq_api_key, settings.groq_model,
-               settings.gemini_api_key, settings.gemini_model)
+               settings.gemini_api_key, settings.gemini_model,
+               settings.llm_api_key, settings.llm_base_url, settings.llm_model)
         if sig == self.signature:
             return
         for p in self.providers.values():
@@ -27,14 +29,18 @@ class AIProviderRouter:
                 await p.close()
         self.providers = {"deterministic": DeterministicWeatherProvider()}
         if settings.groq_api_key:
-            self.providers["groq"] = GroqProvider(*sig[:2], timeout=settings.ai_timeout)
+            self.providers["groq"] = GroqProvider(settings.groq_api_key, settings.groq_model, timeout=settings.ai_timeout)
         if settings.gemini_api_key:
-            self.providers["gemini"] = GeminiProvider(*sig[2:], timeout=settings.ai_timeout)
+            self.providers["gemini"] = GeminiProvider(settings.gemini_api_key, settings.gemini_model, timeout=settings.ai_timeout)
+        if settings.llm_api_key:
+            self.providers["openai"] = OpenAIProvider(settings.llm_api_key, settings.llm_base_url, settings.llm_model, timeout=settings.ai_timeout)
         self.signature = sig
 
     def order(self):
         names = ([settings.ai_primary_provider, settings.ai_fallback_provider]
                  if settings.ai_provider == "auto" else [settings.ai_provider])
+        if settings.llm_api_key and "openai" not in names:
+            names.append("openai")
         return list(dict.fromkeys(names + ["deterministic"]))
 
     def record(self, name, started, error=None, usage=None):
